@@ -120,9 +120,22 @@ function tick() {
     const info = node.querySelector('.info');
     if (info.textContent !== text) info.textContent = text;
   }
+  renderNext();
   const now = $('#now');
   const s = parts.length ? parts.join('   ') : 'Nothing playing';
   if (now.textContent !== s) now.textContent = s;
+}
+
+function renderNext() {
+  const n = snap.next || { id: null, n: 0, label: 'No cues', end: true };
+  const text = n.end ? n.label : `${n.n}. ${n.label}`;
+  const name = $('#nextName');
+  if (name.textContent !== text) name.textContent = text;
+  name.classList.toggle('end', !!n.end);
+  $('#goBtn').disabled = !!n.end;
+  $('#skipCue').disabled = !!n.end;
+  $('#prevCue').disabled = !snap.tiles.length || n.n === 1;
+  for (const node of document.querySelectorAll('#grid .tile[data-id]')) node.classList.toggle('next', node.dataset.id === n.id);
 }
 
 function frame() {
@@ -227,6 +240,9 @@ export async function startRemote() {
   grid.addEventListener('contextmenu', (e) => e.preventDefault());
   $('#stopAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'stopAll' }); });
   $('#fadeAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'fadeAll' }); });
+  $('#goBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'go' }, e.currentTarget); });
+  $('#prevCue').addEventListener('click', () => sendCmd({ t: 'step', delta: -1 }));
+  $('#skipCue').addEventListener('click', () => sendCmd({ t: 'step', delta: 1 }));
   window.addEventListener('resize', () => snap && layout(snap.tiles.length));
   requestAnimationFrame(frame);
 }

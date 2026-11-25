@@ -2,7 +2,7 @@
 import { createHostOffer, qrSvg, startScanner, PAIR_PREFIX, ANSWER_PREFIX } from './pairing.js';
 
 const links = new Set();
-let api = null; // { toggle, stopAll, fadeAll, snapshot, bus, openSheet, closeSheet, el, onCount }
+let api = null; // { toggle, stopAll, fadeAll, go, stepNext, snapshot, bus, openSheet, closeSheet, el, onCount }
 let broadcastTimer = null;
 let lastSent = '';
 
@@ -42,6 +42,8 @@ function addLink(link) {
     if (m.t === 'toggle') api.toggle(m.id);
     else if (m.t === 'stopAll') api.stopAll();
     else if (m.t === 'fadeAll') api.fadeAll();
+    else if (m.t === 'go') api.go();
+    else if (m.t === 'step') api.stepNext(m.delta < 0 ? -1 : 1);
     else if (m.t === 'hello') send(link, api.snapshot());
     setTimeout(() => broadcast(true), 30);
   });

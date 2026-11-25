@@ -103,6 +103,20 @@ await remote.locator('#stopAll').dispatchEvent('pointerdown');
 await host.waitForFunction(() => window.cuepad.engine.players.size === 0, null, { timeout: 3000 });
 check(true, 'Stop all on remote stops the main iPad');
 
+// Running order from the remote (the tap above moved next past the only cue)
+check(await remote.textContent('#nextName') === 'End of show', `remote shows the next cue (${await remote.textContent('#nextName')})`);
+await remote.click('#prevCue');
+await host.waitForFunction(() => window.cuepad.nextIndex() === 0, null, { timeout: 3000 });
+await remote.waitForFunction(() => document.querySelector('#nextName').textContent === '1. Shepherds Dance', null, { timeout: 3000 });
+check(true, 'back button on remote moves the main iPad\'s next cue');
+await remote.locator('#goBtn').dispatchEvent('pointerdown');
+await host.waitForFunction((id) => window.cuepad.engine.isPlaying(id), tileId, { timeout: 3000 });
+await remote.waitForFunction(() => document.querySelector('#nextName').textContent === 'End of show', null, { timeout: 3000 });
+check(true, 'GO on remote plays the next cue on the main iPad and moves next along');
+await remote.screenshot({ path: path.join(fixtures, 'remote-go.png') });
+await remote.locator('#stopAll').dispatchEvent('pointerdown');
+await host.waitForFunction(() => window.cuepad.engine.players.size === 0, null, { timeout: 3000 });
+
 // Host keeps working when the remote goes away
 await remote.close();
 await host.waitForTimeout(500);

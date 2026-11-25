@@ -40,6 +40,12 @@
 
     <footer class="bottombar">
       <div id="now" class="now" aria-live="polite">Nothing playing</div>
+      <div class="next-box">
+        <button id="prevCue" class="btn step" type="button" aria-label="Move next cue back one">◀</button>
+        <div class="next-text" aria-live="polite"><span class="next-tag">Next</span><span id="nextName">–</span></div>
+        <button id="skipCue" class="btn step" type="button" aria-label="Skip the next cue">▶</button>
+      </div>
+      <button id="goBtn" class="btn big go" type="button">GO</button>
       <button id="fadeAll" class="btn big fade" type="button">Fade all</button>
       <button id="stopAll" class="btn big stop" type="button">Stop all</button>
     </footer>
