@@ -91,6 +91,41 @@ check(await page.evaluate(([a, b]) => window.cuepad.engine.isPlaying(a) && windo
 
 await page.screenshot({ path: path.join(fixtures, 'screenshot-playing.png') });
 
+// Pause / resume keeps the place
+await page.locator('#stopAll').dispatchEvent('pointerdown');
+await page.waitForTimeout(200);
+await page.locator(`.tile[data-id="${ids[1]}"]`).dispatchEvent('pointerdown');
+await page.waitForTimeout(1500);
+await page.locator('#pauseAll').dispatchEvent('pointerdown');
+const p1 = await page.evaluate((id) => window.cuepad.engine.position(id), ids[1]);
+check(p1 && p1.paused && await page.evaluate((id) => window.cuepad.engine.isPaused(id), ids[1]), `Pause pauses the cue at ${p1 && p1.pos.toFixed(2)}s`);
+check((await page.textContent('#pauseAll')).includes('Resume'), 'Pause button turns into Resume');
+await page.waitForTimeout(1000);
+const p2 = await page.evaluate((id) => window.cuepad.engine.position(id), ids[1]);
+check(Math.abs(p2.pos - p1.pos) < 0.001, 'position stays put while paused');
+await page.locator('#pauseAll').dispatchEvent('pointerdown');
+await page.waitForTimeout(500);
+const p3 = await page.evaluate((id) => window.cuepad.engine.position(id), ids[1]);
+check(await page.evaluate((id) => window.cuepad.engine.isPlaying(id), ids[1]) && p3.pos > p1.pos + 0.3 && p3.pos < p1.pos + 0.8, `Resume carries on from the same place (${p3.pos.toFixed(2)}s)`);
+// Tapping a paused tile resumes it; starting another cue clears paused ones
+await page.locator('#pauseAll').dispatchEvent('pointerdown');
+await page.locator(`.tile[data-id="${ids[1]}"]`).dispatchEvent('pointerdown');
+check(await page.evaluate((id) => window.cuepad.engine.isPlaying(id), ids[1]), 'tapping a paused tile resumes it');
+await page.locator('#pauseAll').dispatchEvent('pointerdown');
+await page.locator(`.tile[data-id="${ids[2]}"]`).dispatchEvent('pointerdown');
+await page.waitForTimeout(200);
+check(await page.evaluate(([a, b]) => !window.cuepad.engine.players.has(a) && window.cuepad.engine.isPlaying(b), [ids[1], ids[2]]), 'starting another cue clears the paused one');
+
+// Square tiles and the landscape guard
+const dims = await page.$eval('.tile:not(.add)', (n) => { const r = n.getBoundingClientRect(); return [r.width, r.height]; });
+check(Math.abs(dims[0] - dims[1]) < 1.5, `tiles are square (${dims.map(Math.round).join('×')})`);
+check(await page.isHidden('#rotateOverlay'), 'no rotate prompt in landscape');
+await page.setViewportSize({ width: 820, height: 1180 });
+await page.waitForTimeout(200);
+check(await page.isVisible('#rotateOverlay'), 'rotate prompt shows when the iPad is upright');
+await page.setViewportSize({ width: 1180, height: 820 });
+await page.waitForTimeout(200);
+
 await page.locator('#stopAll').dispatchEvent('pointerdown');
 await page.waitForTimeout(300);
 check(await page.evaluate(() => window.cuepad.engine.players.size === 0), 'stop all silences everything');

@@ -120,6 +120,15 @@ await host.evaluate(() => window.cuepad.setVolume(0.9));
 await remote.waitForFunction(() => document.querySelector('.vol-value').textContent === '90%', null, { timeout: 3000 }).catch(() => {});
 check(await remote.textContent('.vol-value') === '90%', 'remote slider follows the main iPad');
 
+await remote.locator('#pauseAll').dispatchEvent('pointerdown');
+await host.waitForFunction((id) => window.cuepad.engine.isPaused(id), tileId, { timeout: 3000 });
+check(true, 'Pause on remote pauses the main iPad');
+await remote.waitForFunction(() => document.querySelector('#pauseAll').textContent.includes('Resume'), null, { timeout: 3000 });
+check(true, 'remote Pause button turns into Resume');
+await remote.locator('#pauseAll').dispatchEvent('pointerdown');
+await host.waitForFunction((id) => window.cuepad.engine.isPlaying(id), tileId, { timeout: 3000 });
+check(true, 'Resume on remote resumes the main iPad');
+
 await remote.locator('#stopAll').dispatchEvent('pointerdown');
 await host.waitForFunction(() => window.cuepad.engine.players.size === 0, null, { timeout: 3000 });
 check(true, 'Stop all on remote stops the main iPad');

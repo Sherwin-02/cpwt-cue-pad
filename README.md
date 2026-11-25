@@ -5,7 +5,7 @@ An iPad app for Citipointe West Tamil church events that plays dance audio, dram
 ## Using it on the iPad
 
 1. Open the app's address in **Safari** while online.
-2. Tap **Share → Add to Home Screen**. Always open Cue Pad from this icon. iOS keeps home-screen apps' saved data, but can clear data for sites only visited in Safari.
+2. Tap **Share → Add to Home Screen**. Cue Pad is laid out for landscape. Lock rotation in Control Center with the iPad sideways. Always open Cue Pad from this icon. iOS keeps home-screen apps' saved data, but can clear data for sites only visited in Safari.
 3. Tap **Edit → + Add tracks** and choose MP3s from Files or iCloud Drive. They're copied onto the iPad.
 4. Tap **Done**. Each tile turns gold-edged when its audio is loaded and ready.
 
@@ -23,6 +23,7 @@ On the day:
 | Tap a tile | Plays it immediately. Other cues fade out unless the tile is set to **Play over other cues** |
 | Tap a playing tile | Fades it out using its fade-out time |
 | Volume rail (right edge) | Master volume for everything. Drag the handle up or down. A tap alone won't change it, so a brush can't jump the level mid-show. It works the same on the remote and stays in sync on both |
+| Pause / Resume | Pauses everything playing and keeps its place. Tap again (or tap the paused tile) to carry on from the same spot. Starting another cue clears paused ones |
 | Fade all | Fades everything out |
 | Stop all | Stops everything immediately |
 | Edit | Add, rename, recolour, reorder or delete cues and change their settings. Taps don't play in Edit mode (use Preview) |

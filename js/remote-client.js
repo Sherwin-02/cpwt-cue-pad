@@ -2,6 +2,7 @@
 // sends taps to it. It plays no audio itself.
 import { createRemoteAnswer, qrSvg, PAIR_PREFIX } from './pairing.js';
 import { createVolumeRail } from './volume.js';
+import { renderPauseBtn, squareGrid } from './layout.js';
 
 let volumeRail = null;
 
@@ -57,14 +58,7 @@ function showMessage(title, text) {
 }
 
 function layout(count) {
-  const grid = $('#grid');
-  const w = grid.clientWidth - 32;
-  const minW = window.innerWidth < 500 ? 120 : 160;
-  const cols = Math.max(1, Math.min(8, Math.floor((w + 10) / (minW + 10))));
-  grid.style.setProperty('--cols', cols);
-  grid.style.setProperty('--row-h', window.innerWidth < 500 ? '96px' : '110px');
-  grid.style.setProperty('--label-size', '16px');
-  grid.style.setProperty('--label-lines', 2);
+  squareGrid($('#grid'), count, { minSide: window.innerWidth < 500 ? 100 : 110 });
 }
 
 let renderedKey = '';
@@ -107,15 +101,17 @@ function tick() {
     node.classList.toggle('error', t.status === 'error');
     node.classList.toggle('playing', t.playing);
     node.classList.toggle('stopping', t.stopping);
+    node.classList.toggle('paused', !!t.paused && !t.stopping);
     let text;
     const bar = node.querySelector('.progress');
     if (t.pos != null) {
-      let pos = t.pos + (t.stopping ? 0 : elapsed);
+      let pos = t.pos + (t.stopping || t.paused ? 0 : elapsed);
       if (t.loop && t.dur) pos %= t.dur;
       pos = Math.min(pos, t.dur || pos);
       text = t.stopping ? 'Fading…' : (t.loop ? `${fmt(pos)} looping` : `−${fmt((t.dur || 0) - pos)}`);
+      if (t.paused && !t.stopping) text = `Paused ${text}`;
       bar.style.width = `${Math.min(100, (pos / Math.max(0.1, t.dur || 1)) * 100)}%`;
-      if (t.playing) parts.push(`${t.n}. ${t.label} ${text}`);
+      if (t.playing || t.paused) parts.push(`${t.n}. ${t.label} ${text}`);
     } else {
       bar.style.width = '0';
       text = t.status === 'ready' ? fmt(t.dur) : t.status === 'error' ? 'Missing audio' : 'Loading…';
@@ -200,6 +196,7 @@ export async function startRemote() {
       snapAt = performance.now();
       if (volumeRail && typeof m.vol === 'number') volumeRail.set(m.vol);
       render();
+      renderPauseBtn($('#pauseAll'), m.pause || 'idle');
       if (connected) { setStatus('Connected'); banner(''); }
     }
   });
@@ -244,6 +241,7 @@ export async function startRemote() {
   grid.addEventListener('contextmenu', (e) => e.preventDefault());
   $('#stopAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'stopAll' }); });
   $('#fadeAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'fadeAll' }); });
+  $('#pauseAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'pauseAll' }); });
   $('#goBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'go' }, e.currentTarget); });
   $('#prevCue').addEventListener('click', () => sendCmd({ t: 'step', delta: -1 }));
   $('#skipCue').addEventListener('click', () => sendCmd({ t: 'step', delta: 1 }));
