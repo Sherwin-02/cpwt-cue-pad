@@ -49,6 +49,7 @@
         <button id="skipCue" class="btn step" type="button" aria-label="Skip the next cue">▶</button>
       </div>
       <button id="goBtn" class="btn big go" type="button">GO</button>
+      <button id="pauseAll" class="btn big pause" type="button" disabled>❚❚ Pause</button>
       <button id="fadeAll" class="btn big fade" type="button">Fade all</button>
       <button id="stopAll" class="btn big stop" type="button">Stop all</button>
     </footer>
@@ -58,6 +59,15 @@
     <div class="overlay-card">
       <div class="overlay-title">CPWT Cue Pad</div>
       <div id="startMsg" class="overlay-msg">Tap anywhere to start</div>
+    </div>
+  </div>
+
+  <div id="rotateOverlay" class="overlay rotate" hidden>
+    <div class="overlay-card">
+      <div class="rotate-icon" aria-hidden="true">⟲</div>
+      <div class="overlay-title">Turn the iPad sideways</div>
+      <div class="overlay-msg">Cue Pad is laid out for landscape. Audio keeps playing.</div>
+      <button class="btn big stop rotate-stop" type="button">Stop all</button>
     </div>
   </div>
 

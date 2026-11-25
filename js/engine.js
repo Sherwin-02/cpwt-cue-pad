@@ -142,11 +142,11 @@ export class Engine extends EventTarget {
 
   isPlaying(tileId) {
     const pl = this.players.get(tileId);
-    return !!pl && !pl.stopping;
+    return !!pl && !pl.stopping && !pl.paused;
   }
 
   playingIds() {
-    return [...this.players.values()].filter((p) => !p.stopping).map((p) => p.tileId);
+    return [...this.players.values()].filter((p) => !p.stopping && !p.paused).map((p) => p.tileId);
   }
 
   // Returns true if playback started.
@@ -180,12 +180,18 @@ export class Engine extends EventTarget {
 
     const player = {
       tileId: tile.id,
+      tile,
+      prep,
+      vol,
       t0,
       gain,
       sources: [head],
       loop,
       playDuration: prep.playDuration,
       stopping: false,
+      paused: false,
+      pausedPos: 0,
+      full: null,
       tailState: prep.needsTail ? 'loading' : 'none',
     };
     this.players.set(tile.id, player);
@@ -198,6 +204,7 @@ export class Engine extends EventTarget {
       }
     };
 
+    player.finalize = finalize;
     if (!prep.needsTail) {
       if (!loop) head.onended = finalize;
     } else {
@@ -215,6 +222,9 @@ export class Engine extends EventTarget {
       if (player.stopping || this.players.get(tile.id) !== player) return;
       const full = await ctx.decodeAudioData(bytes);
       if (player.stopping || this.players.get(tile.id) !== player) return;
+      player.full = full;
+      // Paused while decoding: resume() will play from the full buffer.
+      if (player.paused) { player.tailState = 'ready'; return; }
       const src = ctx.createBufferSource();
       src.buffer = full;
       src.connect(player.gain);
@@ -242,8 +252,73 @@ export class Engine extends EventTarget {
       console.error('Tail decode failed', err);
       player.tailState = 'error';
       // Let the head finish, then end.
-      player.sources[0].onended = finalize;
+      if (player.sources[0]) player.sources[0].onended = finalize;
     }
+  }
+
+  isPaused(tileId) {
+    const pl = this.players.get(tileId);
+    return !!pl && pl.paused && !pl.stopping;
+  }
+
+  pausedIds() {
+    return [...this.players.values()].filter((p) => p.paused && !p.stopping).map((p) => p.tileId);
+  }
+
+  // Pause keeps the cue's place; resume carries on from exactly there.
+  pause(tileId) {
+    const pl = this.players.get(tileId);
+    if (!pl || pl.stopping || pl.paused) return false;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    let pos = now - pl.t0;
+    if (pl.loop && pl.playDuration > 0) pos %= pl.playDuration;
+    pl.pausedPos = Math.max(0, Math.min(pos, pl.playDuration));
+    pl.paused = true;
+    const g = pl.gain.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(0, now + 0.04);
+    for (const s of pl.sources) {
+      s.onended = null;
+      try { s.stop(now + 0.05); } catch {}
+    }
+    pl.sources = [];
+    this.emit('playback', { tileId, state: 'paused' });
+    return true;
+  }
+
+  resume(tileId) {
+    const pl = this.players.get(tileId);
+    if (!pl || pl.stopping || !pl.paused) return false;
+    const ctx = this.ctx;
+    const now = ctx.currentTime;
+    const { prep } = pl;
+    const pos = pl.pausedPos;
+    pl.t0 = now - pos;
+    pl.paused = false;
+    const g = pl.gain.gain;
+    g.cancelScheduledValues(now);
+    g.setValueAtTime(0, now);
+    g.linearRampToValueAtTime(pl.vol, now + 0.04);
+    const src = ctx.createBufferSource();
+    src.connect(pl.gain);
+    if (pl.full) {
+      const startSec = prep.startFrame / pl.full.sampleRate;
+      src.buffer = pl.full;
+      if (pl.loop) { src.loop = true; src.loopStart = startSec; src.loopEnd = pl.full.duration; }
+      src.start(now, startSec + pos);
+      pl.tailState = 'scheduled';
+    } else {
+      src.buffer = prep.head;
+      if (pl.loop && !prep.needsTail) src.loop = true;
+      src.start(now, Math.min(pos, prep.head.duration));
+      // A tail decode still in flight will schedule itself from the new t0.
+    }
+    if (!pl.loop && (pl.full || !prep.needsTail)) src.onended = pl.finalize;
+    pl.sources = [src];
+    this.emit('playback', { tileId, state: 'playing' });
+    return true;
   }
 
   stop(tileId, fadeSeconds = 0) {
@@ -282,8 +357,9 @@ export class Engine extends EventTarget {
   position(tileId) {
     const pl = this.players.get(tileId);
     if (!pl || !this.ctx) return null;
+    if (pl.paused) return { pos: pl.pausedPos, duration: pl.playDuration, loop: pl.loop, stopping: pl.stopping, paused: true };
     let pos = this.ctx.currentTime - pl.t0;
     if (pl.loop && pl.playDuration > 0) pos = pos % pl.playDuration;
-    return { pos: Math.max(0, pos), duration: pl.playDuration, loop: pl.loop, stopping: pl.stopping };
+    return { pos: Math.max(0, pos), duration: pl.playDuration, loop: pl.loop, stopping: pl.stopping, paused: false };
   }
 }

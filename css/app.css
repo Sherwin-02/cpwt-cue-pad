@@ -117,8 +117,9 @@ input, select { font: inherit; }
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   align-content: start;
-  grid-template-columns: repeat(var(--cols, 6), minmax(0, 1fr));
+  grid-template-columns: repeat(var(--cols, 6), var(--tile, 120px));
   grid-auto-rows: var(--row-h, 120px);
+  justify-content: center;
 }
 .grid.fits { overflow: hidden; touch-action: none; }
 
@@ -128,7 +129,7 @@ input, select { font: inherit; }
   flex-direction: column;
   justify-content: space-between;
   text-align: left;
-  padding: 10px 12px 12px 16px;
+  padding: 10px 10px 12px 14px;
   border-radius: var(--radius);
   border: 2px solid transparent;
   background: var(--maroon);
@@ -165,7 +166,9 @@ input, select { font: inherit; }
   -webkit-line-clamp: var(--label-lines, 3);
   -webkit-box-orient: vertical;
   overflow: hidden;
-  word-break: break-word;
+  overflow-wrap: anywhere;
+  -webkit-hyphens: auto;
+  hyphens: auto;
 }
 .tile .info { font-size: 13px; font-variant-numeric: tabular-nums; opacity: 0.9; }
 .tile .progress {
@@ -200,7 +203,7 @@ input, select { font: inherit; }
 }
 .now { flex: 1; min-width: 0; font-size: 15px; color: var(--cream); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
 .now b { color: var(--apricot); }
-.btn.big { min-width: 150px; padding: 18px 22px; font-size: 20px; border-radius: 14px; }
+.btn.big { min-width: 124px; padding: 18px 20px; font-size: 20px; border-radius: 14px; }
 .btn.fade { background: var(--apricot); color: var(--wine); }
 .btn.stop { background: var(--danger); color: var(--white); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) inset; }
 .btn.go { background: var(--ok); color: var(--wine-deep); min-width: 130px; font-size: 24px; font-weight: 800; letter-spacing: 0.04em; }
@@ -392,3 +395,14 @@ body.remote-mode .grid { touch-action: pan-y; }
   .brand-text { display: none; }
   .logo { height: 32px; }
 }
+
+/* Pause / resume */
+.btn.pause { background: var(--maroon); color: var(--cream); border: 2px solid var(--apricot); }
+.btn.pause.resume { background: var(--apricot); color: var(--wine); }
+.tile.paused { background: var(--maroon-dim); border-color: var(--apricot); border-style: dashed; }
+.tile.paused .progress { background: var(--gold); }
+
+/* Landscape guard (main iPad held upright) */
+.overlay.rotate { z-index: 60; cursor: default; }
+.rotate-icon { font-size: 64px; color: var(--apricot); line-height: 1; margin-bottom: 8px; }
+.rotate .overlay-msg { margin-bottom: 20px; }

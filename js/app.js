@@ -3,8 +3,9 @@ import * as db from './db.js';
 import * as backup from './backup.js';
 import { setupRemoteHost, openPairingSheet, remoteCount } from './remote-host.js';
 import { createVolumeRail, toGain } from './volume.js';
+import { renderPauseBtn, setupOrientationGuard, squareGrid } from './layout.js';
 
-export const APP_VERSION = '1.3.0';
+export const APP_VERSION = '1.4.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -87,6 +88,10 @@ export function toggle(tileId) {
     showOverlay('Tap anywhere to turn audio back on');
     return;
   }
+  if (engine.isPaused(tileId)) {
+    engine.resume(tileId);
+    return;
+  }
   if (engine.isPlaying(tileId)) {
     engine.stop(tileId, tile.fadeOut ?? 2);
     return;
@@ -100,6 +105,7 @@ export function toggle(tileId) {
       const other = tileById(id);
       engine.stop(id, other ? Math.min(other.fadeOut ?? 2, 2) : 1);
     }
+    for (const id of engine.pausedIds()) engine.stop(id, 0);
   }
   engine.play(tile);
   // Starting a cue by hand moves GO along to the cue after it, so GO always
@@ -205,6 +211,20 @@ export function fadeAll() {
     const t = tileById(id);
     engine.stop(id, t ? Math.max(1, t.fadeOut ?? 2) : 2);
   }
+  for (const id of engine.pausedIds()) engine.stop(id, 0);
+}
+
+// Pause everything that's playing; if nothing is playing, resume what was paused.
+export function pauseAll() {
+  const playing = engine.playingIds();
+  if (playing.length) playing.forEach((id) => engine.pause(id));
+  else engine.pausedIds().forEach((id) => engine.resume(id));
+}
+
+function pauseState() {
+  if (engine.playingIds().length) return 'pause';
+  if (engine.pausedIds().length) return 'resume';
+  return 'idle';
 }
 
 let volume = 1;
@@ -224,6 +244,7 @@ export function snapshot() {
   const show = state.show;
   return {
     vol: volume,
+    pause: pauseState(),
     showName: show ? show.name : '',
     tiles: show ? show.tiles.map((t, i) => {
       const p = engine.position(t.id);
@@ -231,6 +252,7 @@ export function snapshot() {
         id: t.id, n: i + 1, label: t.label, color: t.color,
         status: engine.prepStatus(t.id),
         playing: engine.isPlaying(t.id),
+        paused: !!(p && p.paused),
         stopping: !!(p && p.stopping),
         pos: p ? p.pos : null, dur: p ? p.duration : (engine.preps.get(t.id)?.playDuration ?? null),
         loop: !!t.loop,
@@ -253,40 +275,8 @@ function flash(tileId) {
 function layoutGrid() {
   const grid = $('#grid');
   const count = (state.show ? state.show.tiles.length : 0) + (state.editing ? 1 : 0);
-  const rect = grid.getBoundingClientRect();
-  const w = rect.width - 32;
-  const h = rect.height - 24;
-  const gap = 10;
-  const minW = window.innerWidth < 700 ? 140 : 150;
-  const minH = 84;
-  let best = null;
-  if (count > 0 && w > 0 && h > 0) {
-    for (let cols = 1; cols <= 10; cols++) {
-      const tileW = (w - gap * (cols - 1)) / cols;
-      if (tileW < minW && cols > 1) break;
-      const rows = Math.ceil(count / cols);
-      const tileH = (h - gap * (rows - 1)) / rows;
-      if (tileH < minH) continue;
-      const score = Math.min(tileW, tileH * 1.4);
-      if (!best || score > best.score) best = { cols, tileW, tileH: Math.min(tileH, 170), score };
-    }
-  }
-  if (best) {
-    grid.style.setProperty('--cols', best.cols);
-    grid.style.setProperty('--row-h', `${best.tileH}px`);
-    const size = Math.max(13, Math.min(20, best.tileH * 0.15, best.tileW * 0.11));
-    grid.style.setProperty('--label-size', `${size.toFixed(1)}px`);
-    const lines = Math.floor((best.tileH - 56) / (size * 1.15));
-    grid.style.setProperty('--label-lines', Math.max(1, Math.min(3, lines)));
-    state.fits = true;
-  } else {
-    const cols = Math.max(1, Math.floor((w + gap) / (minW + gap)));
-    grid.style.setProperty('--cols', cols);
-    grid.style.setProperty('--row-h', '110px');
-    grid.style.setProperty('--label-size', '16px');
-    grid.style.setProperty('--label-lines', 2);
-    state.fits = count === 0;
-  }
+  const res = squareGrid(grid, count, { minSide: window.innerWidth < 700 ? 100 : 96 });
+  state.fits = res.fits;
   grid.classList.toggle('fits', state.fits && !state.editing);
 }
 
@@ -373,7 +363,8 @@ function updateTiles() {
     const p = engine.position(t.id);
     const prep = engine.preps.get(t.id);
     if (!node) continue;
-    const playing = !!p && !p.stopping;
+    const playing = !!p && !p.stopping && !p.paused;
+    const paused = !!p && !p.stopping && p.paused;
     const stopping = !!p && p.stopping;
     node.classList.toggle('queued', status === 'queued');
     node.classList.toggle('loading', status === 'loading');
@@ -381,14 +372,16 @@ function updateTiles() {
     node.classList.toggle('error', status === 'error');
     node.classList.toggle('playing', playing);
     node.classList.toggle('stopping', stopping);
+    node.classList.toggle('paused', paused);
     const info = node.querySelector('.info');
     const bar = node.querySelector('.progress');
     let text;
     if (p) {
       const left = p.loop ? null : p.duration - p.pos;
       text = stopping ? 'Fading…' : (p.loop ? `${fmtTime(p.pos)} looping` : `−${fmtTime(left)}`);
+      if (paused) text = `Paused ${text}`;
       bar.style.width = `${Math.min(100, (p.pos / Math.max(0.1, p.duration)) * 100)}%`;
-      if (playing) nowParts.push({ n: tiles.indexOf(t) + 1, label: t.label, text });
+      if (playing || paused) nowParts.push({ n: tiles.indexOf(t) + 1, label: t.label, text });
     } else {
       bar.style.width = '0';
       if (status === 'ready') text = fmtTime(prep.playDuration);
@@ -397,6 +390,7 @@ function updateTiles() {
     }
     if (info.textContent !== text) info.textContent = text;
   }
+  renderPauseBtn($('#pauseAll'), pauseState());
   const now = $('#now');
   if (!nowParts.length) {
     if (now.textContent !== 'Nothing playing') now.textContent = 'Nothing playing';
@@ -862,6 +856,7 @@ async function init() {
   setupRemoteHost({
     toggle: (id) => { toggle(id); kick(); },
     stopAll: () => { stopAll(); kick(); },
+    pauseAll: () => { pauseAll(); kick(); },
     fadeAll: () => { fadeAll(); kick(); },
     go: () => { go(); kick(); },
     stepNext,
@@ -885,6 +880,8 @@ async function init() {
   $('#showBtn').addEventListener('click', openShowsSheet);
   $('#stopAll').addEventListener('pointerdown', (e) => { e.preventDefault(); stopAll(); kick(); });
   $('#fadeAll').addEventListener('pointerdown', (e) => { e.preventDefault(); fadeAll(); kick(); });
+  $('#pauseAll').addEventListener('pointerdown', (e) => { e.preventDefault(); pauseAll(); updateTiles(); kick(); });
+  setupOrientationGuard({ onStopAll: () => { stopAll(); kick(); } });
   $('#goBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); go(); kick(); });
   // blur() so a later Space/Enter from a pedal is GO, not another click here.
   $('#prevCue').addEventListener('click', (e) => { e.currentTarget.blur(); stepNext(-1); });
@@ -934,6 +931,6 @@ function setupKeys() {
 }
 
 // Exposed for automated tests and the remote module.
-window.cuepad = { state, engine, setVolume, getVolume: () => volume, toggle, stopAll, fadeAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount };
+window.cuepad = { state, engine, setVolume, getVolume: () => volume, toggle, stopAll, fadeAll, pauseAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount };
 
 init();
