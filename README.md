@@ -22,6 +22,7 @@ On the day:
 | --- | --- |
 | Tap a tile | Plays it immediately. Other cues fade out unless the tile is set to **Play over other cues** |
 | Tap a playing tile | Fades it out using its fade-out time |
+| Volume rail (right edge) | Master volume for everything. Drag the handle up or down. A tap alone won't change it, so a brush can't jump the level mid-show. It works the same on the remote and stays in sync on both |
 | Fade all | Fades everything out |
 | Stop all | Stops everything immediately |
 | Edit | Add, rename, recolour, reorder or delete cues and change their settings. Taps don't play in Edit mode (use Preview) |

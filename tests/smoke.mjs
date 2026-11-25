@@ -28,7 +28,7 @@ async function makeFixtures() {
   return specs.map(([n]) => path.join(fixtures, n));
 }
 
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json', '.mp3': 'audio/mpeg' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json', '.mp3': 'audio/mpeg' };
 function serve() {
   return new Promise((resolve) => {
     const srv = createServer(async (req, res) => {
@@ -121,11 +121,17 @@ const seam = await page.evaluate(async (id) => {
 }, ids[1]);
 check(seam.maxDiff < 1e-4, `head/tail join is seamless (max sample diff ${seam.maxDiff.toExponential(2)}, head ${seam.headSeconds}s)`);
 
+// Volume persists and the logo loads
+check(await page.evaluate(() => document.querySelector('#logo').naturalWidth > 0), 'church logo shows in the header');
+await page.evaluate(() => window.cuepad.setVolume(0.7));
+await page.waitForTimeout(600);
+
 // Persistence: reload keeps the show and reloads audio.
 await page.reload();
 await page.waitForFunction(() => window.cuepad && window.cuepad.state.show && window.cuepad.state.show.tiles.length === 3);
 await page.waitForFunction(() => window.cuepad.state.show.tiles.every((t) => window.cuepad.engine.prepStatus(t.id) === 'ready'), null, { timeout: 30000 });
 check(true, 'show and audio survive a reload');
+check(await page.textContent('.vol-value') === '70%', 'master volume is remembered after a reload');
 
 // Backup round trip
 const roundTrip = await page.evaluate(async () => {
