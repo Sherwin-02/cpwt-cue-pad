@@ -1,7 +1,10 @@
 // Main iPad side of the remote: pairing sheet, state broadcast, commands.
-import { createHostOffer, qrSvg, startScanner, PAIR_PREFIX, ANSWER_PREFIX } from './pairing.js';
+import { createHostOffer, createStandby, qrSvg, startScanner, PAIR_PREFIX, ANSWER_PREFIX } from './pairing.js';
 
 const links = new Set();
+// Paired remotes by their id: { link (the live one), standby } so a remote that
+// drops can reconnect on its own. Kept for as long as this page stays open.
+const paired = new Map();
 let api = null; // { toggle, stopAll, fadeAll, go, stepNext, snapshot, bus, openSheet, closeSheet, el, onCount }
 let broadcastTimer = null;
 let lastSent = '';
@@ -10,6 +13,17 @@ export function remoteCount() {
   let n = 0;
   for (const l of links) if (l.state === 'open' || l.state === 'reconnecting') n++;
   return n;
+}
+
+// Paired remotes that aren't connected right now (they reconnect by themselves).
+function awayCount() {
+  let n = 0;
+  for (const e of paired.values()) if (!e.link || e.link.state !== 'open') n++;
+  return n;
+}
+
+function updateCount() {
+  api.onCount(remoteCount(), awayCount());
 }
 
 function send(link, snap) {
@@ -46,15 +60,60 @@ function addLink(link) {
     else if (m.t === 'go') api.go();
     else if (m.t === 'step') api.stepNext(m.delta < 0 ? -1 : 1);
     else if (m.t === 'volume') api.setVolume(m.v);
-    else if (m.t === 'hello') send(link, api.snapshot());
+    else if (m.t === 'hello') {
+      send(link, api.snapshot());
+      if (typeof m.rid === 'string' && m.rid) adopt(m.rid, link, m.reconnect !== false);
+      return;
+    } else if (m.t === 'standbyAnswer') {
+      armStandby(link, m);
+      return;
+    } else return;
     setTimeout(() => broadcast(true), 30);
   });
   link.addEventListener('state', (e) => {
     if (e.detail === 'open') send(link, api.snapshot());
     if (e.detail === 'closed') links.delete(link);
-    api.onCount(remoteCount());
+    updateCount();
   });
   ensureTimer();
+}
+
+// A remote said who it is. This link becomes its live link (closing any older
+// one that hasn't noticed it's dead yet), and a fresh standby is prepared.
+async function adopt(rid, link, canReconnect) {
+  let entry = paired.get(rid);
+  if (!entry) { entry = { link: null, standby: null }; paired.set(rid, entry); }
+  if (entry.link && entry.link !== link) entry.link.close();
+  entry.link = link;
+  link.rid = rid;
+  if (!canReconnect) return;
+  try {
+    const sb = await createStandby();
+    if (entry.link !== link || link.state === 'closed') { sb.link.close(); return; }
+    if (entry.standby) entry.standby.link.close();
+    entry.standby = sb;
+    sb.link.addEventListener('state', (e) => {
+      if (e.detail !== 'open') return;
+      if (entry.standby === sb) entry.standby = null;
+      addLink(sb.link);
+      updateCount();
+    });
+    link.send({ t: 'standby', sdp: sb.offer });
+  } catch (err) {
+    console.warn('Could not prepare a standby link', err);
+  }
+}
+
+async function armStandby(link, m) {
+  const entry = link.rid && paired.get(link.rid);
+  if (!entry || !entry.standby || entry.standby.offer !== m.offer) return;
+  try {
+    await entry.standby.arm(m.sdp);
+    link.send({ t: 'armed', offer: m.offer });
+  } catch (err) {
+    console.warn('Standby answer rejected', err);
+    link.send({ t: 'armFailed' });
+  }
 }
 
 export function setupRemoteHost(options) {
@@ -63,9 +122,19 @@ export function setupRemoteHost(options) {
 }
 
 export function disconnectAll() {
-  for (const l of [...links]) l.close();
-  links.clear();
+  for (const l of [...links]) { l.send({ t: 'forget' }); }
+  // Give the goodbye a moment to go out before closing.
+  setTimeout(() => {
+    for (const l of [...links]) l.close();
+    links.clear();
+  }, 150);
+  for (const entry of paired.values()) if (entry.standby) entry.standby.link.close();
+  paired.clear();
   api.onCount(0);
+}
+
+export function pairedCount() {
+  return paired.size;
 }
 
 export async function openPairingSheet() {
@@ -85,8 +154,9 @@ export async function openPairingSheet() {
         el('p', {}, 'The remote then shows its own code. Hold it up to this iPad\'s front camera.'),
         video, step)),
     msg,
+    el('p', { class: 'muted' }, 'Each remote only needs this once. If its wifi drops or its screen locks, it reconnects by itself as long as Cue Pad stays open on this iPad.'),
     el('div', { class: 'btn-row' },
-      el('button', { class: 'btn', type: 'button', onclick: () => { disconnectAll(); msg.textContent = 'All remotes disconnected.'; } }, 'Disconnect all remotes')));
+      el('button', { class: 'btn', type: 'button', onclick: () => { disconnectAll(); msg.textContent = 'All remotes disconnected.'; } }, 'Disconnect and forget all remotes')));
 
   let stopScan = null;
   let pending = null;

@@ -147,6 +147,55 @@ await remote.screenshot({ path: path.join(fixtures, 'remote-go.png') });
 await remote.locator('#stopAll').dispatchEvent('pointerdown');
 await host.waitForFunction(() => window.cuepad.engine.players.size === 0, null, { timeout: 3000 });
 
+// Reconnect without scanning: the remote saves a standby from the main iPad
+await remote.waitForFunction(() => window.cuepadRemote.pairing && window.cuepadRemote.pairing.offer, null, { timeout: 8000 }).catch(() => {});
+check(await remote.evaluate(() => !!(window.cuepadRemote.pairing && window.cuepadRemote.pairing.offer)), 'remote has a standby link ready for reconnecting');
+check(await host.evaluate(() => window.cuepad.pairedCount()) === 1, 'main iPad remembers the paired remote');
+
+const tapAndCheck = async (label) => {
+  await remote.waitForFunction(() => window.cuepadRemote.link && window.cuepadRemote.link.state === 'open' && document.querySelectorAll('.tile').length === 1, null, { timeout: 20000 });
+  await remote.locator('.tile').dispatchEvent('pointerdown');
+  const ok = await host.waitForFunction((id) => window.cuepad.engine.isPlaying(id), tileId, { timeout: 3000 }).then(() => true, () => false);
+  check(ok, label);
+  await remote.locator('#stopAll').dispatchEvent('pointerdown');
+  await host.waitForFunction(() => window.cuepad.engine.players.size === 0, null, { timeout: 3000 });
+};
+
+// 1. The link drops (wifi gone, screen locked): it comes back on its own.
+const before = await remote.evaluate(() => window.cuepadRemote.link);
+await remote.evaluate(() => window.cuepadRemote.link.close());
+await tapAndCheck('remote reconnects by itself after the link drops, and taps work');
+check(await host.evaluate(() => window.cuepad.remoteCount()) === 1, `host counts one remote after reconnecting (${await host.evaluate(() => window.cuepad.remoteCount())})`);
+void before;
+
+// 2. It drops again (each reconnect prepares the next standby).
+await remote.waitForFunction(() => window.cuepadRemote.pairing.offer && window.cuepadRemote.link.state === 'open', null, { timeout: 8000 });
+await remote.waitForTimeout(1500);
+await remote.evaluate(() => window.cuepadRemote.link.close());
+await tapAndCheck('remote reconnects a second time');
+
+// 2b. A silent drop: the main iPad still thinks the old link is up when the
+// remote comes back on the standby. The old one must be replaced, not doubled.
+await remote.waitForFunction(() => window.cuepadRemote.pairing.offer && window.cuepadRemote.link.state === 'open', null, { timeout: 8000 });
+await remote.waitForTimeout(1500);
+await remote.evaluate(() => { const l = window.cuepadRemote.link; l.close = () => {}; window.cuepadRemote.reconnect(); });
+await tapAndCheck('remote reconnects while the main iPad still holds the old link');
+await host.waitForTimeout(300);
+check(await host.evaluate(() => window.cuepad.remoteCount()) === 1, `old link is replaced, not counted twice (${await host.evaluate(() => window.cuepad.remoteCount())})`);
+
+// 3. The browser reloads the remote page: still no scanning needed.
+await remote.waitForTimeout(1500);
+await remote.reload();
+await tapAndCheck('remote reconnects by itself after its page reloads');
+check(await host.evaluate(() => window.cuepad.remoteCount()) === 1, 'host still counts one remote');
+await remote.screenshot({ path: path.join(fixtures, 'remote-reconnected.png') });
+
+// 4. Forget on the main iPad: the remote is told and stops trying.
+await host.evaluate(() => window.cuepad.disconnectAll());
+await remote.waitForFunction(() => document.body.textContent.includes('disconnected this remote'), null, { timeout: 5000 }).catch(() => {});
+check(await remote.evaluate(() => document.body.textContent.includes('disconnected this remote') && !window.cuepadRemote.pairing), 'remote forgets the pairing when the main iPad disconnects it');
+check(await host.evaluate(() => window.cuepad.pairedCount()) === 0, 'main iPad forgets the remote');
+
 // Host keeps working when the remote goes away
 await remote.close();
 await host.waitForTimeout(500);

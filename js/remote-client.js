@@ -1,6 +1,6 @@
 // Remote side: a phone or second iPad that mirrors the main iPad's tiles and
 // sends taps to it. It plays no audio itself.
-import { createRemoteAnswer, qrSvg, PAIR_PREFIX } from './pairing.js';
+import { createRemoteAnswer, remoteIdentity, standbyAnswer, reconnectToStandby, qrSvg, PAIR_PREFIX } from './pairing.js';
 import { createVolumeRail } from './volume.js';
 import { renderPauseBtn, squareGrid } from './layout.js';
 
@@ -18,6 +18,24 @@ let snap = null;
 let snapAt = 0;
 let lastMsgAt = 0;
 let connected = false;
+let identity = null;
+let pairing = null; // { from: pairing code it was first paired with, offer: standby to reconnect to }
+let retryTimer = null;
+let attempt = 0;
+let reconnecting = false;
+
+const PAIRING_KEY = 'cuepad.remote.pairing';
+
+function loadPairing() {
+  try { return JSON.parse(localStorage.getItem(PAIRING_KEY) || 'null'); } catch { return null; }
+}
+
+function savePairing() {
+  try {
+    if (pairing) localStorage.setItem(PAIRING_KEY, JSON.stringify(pairing));
+    else localStorage.removeItem(PAIRING_KEY);
+  } catch {}
+}
 
 function setStatus(text, warn = false) {
   const s = $('#status');
@@ -34,18 +52,26 @@ function banner(text) {
   b.textContent = text || '';
 }
 
+// While pairing or waiting there are no tiles yet, so the code (or message)
+// gets the whole screen and the tile controls are hidden.
+function setPairingView(on) {
+  document.body.classList.toggle('remote-pairing', on);
+  if (on) renderedKey = '';
+}
+
 function showPairing(html, note) {
+  setPairingView(true);
   const grid = $('#grid');
   grid.className = 'grid';
-  grid.style.setProperty('--cols', 1);
   grid.innerHTML = '';
   const card = document.createElement('div');
   card.className = 'remote-pair';
-  card.innerHTML = `<h2>Show this to the main iPad</h2><p>Hold this screen up to the main iPad's front camera until it says connected. Turn your brightness up if it doesn't read.</p><div class="qr-box big">${html}</div><p class="muted">${note || ''}</p>`;
+  card.innerHTML = `<h2>Show this to the main iPad</h2><div class="qr-box big">${html}</div><p>Hold this screen up to the main iPad's front camera until it says connected. Turn your brightness up if it doesn't read.</p><p class="muted">${note || ''}</p>`;
   grid.append(card);
 }
 
-function showMessage(title, text) {
+function showMessage(title, text, { full = true } = {}) {
+  if (full) setPairingView(true);
   const grid = $('#grid');
   grid.className = 'grid';
   grid.innerHTML = '';
@@ -58,7 +84,7 @@ function showMessage(title, text) {
 }
 
 function layout(count) {
-  squareGrid($('#grid'), count, { minSide: window.innerWidth < 500 ? 100 : 110 });
+  squareGrid($('#grid'), count, { minSide: window.innerWidth < 500 ? 92 : 110 });
 }
 
 let renderedKey = '';
@@ -69,6 +95,7 @@ function render() {
   const key = JSON.stringify(snap.tiles.map((t) => [t.id, t.label, t.color]));
   if (key !== renderedKey) {
     renderedKey = key;
+    setPairingView(false);
     grid.className = 'grid';
     grid.innerHTML = '';
     for (const t of snap.tiles) {
@@ -83,7 +110,7 @@ function render() {
       b.querySelector('.label').textContent = t.label;
       grid.append(b);
     }
-    if (!snap.tiles.length) showMessage('No cues yet', 'Add cues on the main iPad and they will appear here.');
+    if (!snap.tiles.length) showMessage('No cues yet', 'Add cues on the main iPad and they will appear here.', { full: false });
     layout(snap.tiles.length);
   }
   tick();
@@ -139,21 +166,157 @@ function renderNext() {
 
 function frame() {
   tick();
-  if (connected && performance.now() - lastMsgAt > 4000) {
+  const quiet = performance.now() - lastMsgAt;
+  if (connected && quiet > 4000) {
     setStatus('No signal from main iPad', true);
-    banner('Lost contact with the main iPad. It keeps playing. Waiting to reconnect…');
+    banner('Lost contact with the main iPad. It keeps playing. Reconnecting…');
+    if (quiet > 6000 && !reconnecting) reconnect();
   }
   requestAnimationFrame(frame);
 }
 
 function sendCmd(obj, node) {
   if (!link || !link.send(obj)) {
-    banner('Not connected to the main iPad.');
+    banner('Not connected to the main iPad. Reconnecting…');
+    if (!reconnecting) reconnect();
     return;
   }
   if (node) {
     node.classList.add('pressed');
     setTimeout(() => node.classList.remove('pressed'), 120);
+  }
+}
+
+// ---------------------------------------------------------------- link handling
+
+function useLink(l) {
+  const old = link;
+  link = l;
+  if (old && old !== l) old.close();
+  l.addEventListener('message', (e) => {
+    if (l !== link) return;
+    const m = e.detail;
+    lastMsgAt = performance.now();
+    if (m.t === 'state') {
+      snap = m;
+      snapAt = performance.now();
+      if (volumeRail && typeof m.vol === 'number') volumeRail.set(m.vol);
+      render();
+      renderPauseBtn($('#pauseAll'), m.pause || 'idle');
+      if (connected) { setStatus('Connected'); banner(''); }
+    } else if (m.t === 'standby') {
+      prepareStandby(l, m.sdp);
+    } else if (m.t === 'armed' && pairing) {
+      pairing.offer = m.offer;
+      savePairing();
+    } else if (m.t === 'forget') {
+      forget('The main iPad disconnected this remote. To use it again, tap Remote on the main iPad and scan its code.');
+    }
+  });
+  l.addEventListener('state', (e) => {
+    if (l !== link) return;
+    const s = e.detail;
+    if (s === 'open') {
+      connected = true;
+      reconnecting = false;
+      attempt = 0;
+      clearTimeout(retryTimer);
+      lastMsgAt = performance.now();
+      setStatus('Connected');
+      banner('');
+      l.send({ t: 'hello', rid: identity && identity.id, reconnect: !!(identity && identity.cert) });
+    } else if (s === 'reconnecting') {
+      setStatus('Reconnecting…', true);
+      banner('Lost contact with the main iPad. It keeps playing. Reconnecting…');
+      // Short wifi blips recover by themselves; if not, use the standby.
+      clearTimeout(retryTimer);
+      retryTimer = setTimeout(() => { if (l === link && l.state !== 'open') reconnect(); }, 4000);
+    } else if (s === 'closed') {
+      connected = false;
+      if (!reconnecting) reconnect();
+    }
+  });
+}
+
+async function prepareStandby(l, offerSdp) {
+  if (!identity || !identity.cert || !pairing) return;
+  try {
+    const sdp = await standbyAnswer(offerSdp, identity);
+    l.send({ t: 'standbyAnswer', offer: offerSdp, sdp });
+  } catch (err) {
+    console.warn('Could not prepare reconnect', err);
+  }
+}
+
+function forget(text) {
+  pairing = null;
+  savePairing();
+  clearTimeout(retryTimer);
+  reconnecting = false;
+  connected = false;
+  if (link) { const l = link; link = null; l.close(); }
+  snap = null;
+  setStatus('Not paired', true);
+  banner('');
+  showMessage('Not connected', text);
+}
+
+// Reconnect to the main iPad's waiting standby. No codes to scan. Keeps trying
+// while this screen is on; the main iPad just needs Cue Pad left open.
+async function reconnect() {
+  clearTimeout(retryTimer);
+  if (!pairing || !pairing.offer || !identity || !identity.cert) {
+    connected = false;
+    if (link) { const l = link; link = null; l.close(); }
+    setStatus('Disconnected', true);
+    banner('');
+    showMessage('Disconnected', 'This remote can\'t reconnect by itself. On the main iPad, tap Remote and scan its code to pair again.');
+    return;
+  }
+  if (document.visibilityState === 'hidden') { reconnecting = false; return; }
+  reconnecting = true;
+  connected = false;
+  attempt++;
+  setStatus('Reconnecting…', true);
+  if (attempt > 3) {
+    banner('Still trying to reach the main iPad. Check this phone is on the same wifi. If Cue Pad was closed on the main iPad, tap Remote there and scan again.');
+  } else {
+    banner('Lost contact with the main iPad. It keeps playing. Reconnecting…');
+  }
+  if (!snap) showMessage('Reconnecting…', 'Finding the main iPad. You don\'t need to scan anything.');
+  let l = null;
+  try {
+    l = await reconnectToStandby(pairing.offer, identity);
+    useLink(l);
+  } catch (err) {
+    console.warn('Reconnect failed', err);
+  }
+  // Give this attempt a few seconds, then try again. Don't cut off an attempt
+  // that is part-way through connecting: that could use up the standby.
+  const started = performance.now();
+  const check = () => {
+    if (!l || l !== link) { if (!l) reconnect(); return; }
+    if (l.state === 'open') return;
+    const busy = l.pc && (l.pc.connectionState === 'connecting' || l.pc.connectionState === 'connected');
+    if (busy && performance.now() - started < 15000) { retryTimer = setTimeout(check, 1000); return; }
+    reconnect();
+  };
+  retryTimer = setTimeout(check, attempt > 3 ? 5000 : 3000);
+}
+
+async function pairFresh(code) {
+  setStatus('Pairing…');
+  showMessage('Getting ready…', 'Creating a pairing code.');
+  try {
+    const res = await createRemoteAnswer(code, identity);
+    pairing = { from: code, offer: null };
+    savePairing();
+    useLink(res.link);
+    showPairing(await qrSvg(res.answerText), 'You only need to do this once. After that, this remote reconnects by itself.');
+  } catch (err) {
+    console.error(err);
+    setStatus('Not paired', true);
+    showMessage('This pairing code has expired', 'On the main iPad, tap Remote, then scan the new code with this device\'s camera.');
   }
 }
 
@@ -169,55 +332,35 @@ export async function startRemote() {
   if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
   try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch {}
   document.addEventListener('visibilitychange', async () => {
-    if (document.visibilityState === 'visible') {
-      try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch {}
+    if (document.visibilityState !== 'visible') return;
+    try { if ('wakeLock' in navigator) await navigator.wakeLock.request('screen'); } catch {}
+    // Back from a locked screen or another app: reconnect straight away.
+    if (pairing && pairing.offer && (!link || link.state !== 'open' || performance.now() - lastMsgAt > 2500)) {
+      attempt = 0;
+      reconnect();
     }
   });
 
-  const offer = location.hash.slice(PAIR_PREFIX.length);
-  setStatus('Pairing…');
-  showMessage('Getting ready…', 'Creating a pairing code.');
-  try {
-    const res = await createRemoteAnswer(offer);
-    link = res.link;
-    showPairing(await qrSvg(res.answerText), 'Each code works once. If pairing fails, tap Remote on the main iPad and scan its new code.');
-  } catch (err) {
-    console.error(err);
-    setStatus('Not paired', true);
-    showMessage('This pairing code has expired', 'On the main iPad, tap Remote, then scan the new code with this device\'s camera.');
-    return;
+  setupControls();
+  requestAnimationFrame(frame);
+  // Used by automated tests.
+  window.cuepadRemote = { get link() { return link; }, get pairing() { return pairing; }, get identity() { return identity; }, reconnect: () => { attempt = 0; return reconnect(); } };
+
+  showMessage('Getting ready…', 'Starting the remote.');
+  try { identity = await remoteIdentity(); } catch { identity = null; }
+
+  const code = location.hash.slice(PAIR_PREFIX.length);
+  const saved = loadPairing();
+  if (saved && saved.from === code && saved.offer) {
+    // Same link as before (the page was reloaded): reconnect without codes.
+    pairing = saved;
+    reconnect();
+  } else {
+    await pairFresh(code);
   }
+}
 
-  link.addEventListener('message', (e) => {
-    const m = e.detail;
-    lastMsgAt = performance.now();
-    if (m.t === 'state') {
-      snap = m;
-      snapAt = performance.now();
-      if (volumeRail && typeof m.vol === 'number') volumeRail.set(m.vol);
-      render();
-      renderPauseBtn($('#pauseAll'), m.pause || 'idle');
-      if (connected) { setStatus('Connected'); banner(''); }
-    }
-  });
-  link.addEventListener('state', (e) => {
-    const s = e.detail;
-    if (s === 'open') {
-      connected = true;
-      lastMsgAt = performance.now();
-      setStatus('Connected');
-      banner('');
-      link.send({ t: 'hello' });
-    } else if (s === 'reconnecting') {
-      setStatus('Reconnecting…', true);
-      banner('Lost contact with the main iPad. It keeps playing. Trying to reconnect…');
-    } else if (s === 'closed') {
-      connected = false;
-      setStatus('Disconnected', true);
-      banner('Disconnected. On the main iPad, tap Remote and scan the new code to reconnect.');
-    }
-  });
-
+function setupControls() {
   const grid = $('#grid');
   // Fire on touch-down when the grid fits on screen; if it scrolls (phones),
   // fire on lift only when the finger didn't move, so scrolling is safe.
@@ -246,6 +389,5 @@ export async function startRemote() {
   $('#prevCue').addEventListener('click', () => sendCmd({ t: 'step', delta: -1 }));
   $('#skipCue').addEventListener('click', () => sendCmd({ t: 'step', delta: 1 }));
   volumeRail = createVolumeRail($('#volume'), { value: 1, onChange: (v) => sendCmd({ t: 'volume', v }) });
-  window.addEventListener('resize', () => snap && layout(snap.tiles.length));
-  requestAnimationFrame(frame);
+  window.addEventListener('resize', () => snap && renderedKey && layout(snap.tiles.length));
 }

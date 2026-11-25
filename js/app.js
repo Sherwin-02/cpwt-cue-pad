@@ -1,11 +1,11 @@
 import { Engine } from './engine.js';
 import * as db from './db.js';
 import * as backup from './backup.js';
-import { setupRemoteHost, openPairingSheet, remoteCount } from './remote-host.js';
+import { setupRemoteHost, openPairingSheet, remoteCount, disconnectAll, pairedCount } from './remote-host.js';
 import { createVolumeRail, toGain } from './volume.js';
 import { renderPauseBtn, setupOrientationGuard, squareGrid } from './layout.js';
 
-export const APP_VERSION = '1.4.0';
+export const APP_VERSION = '1.5.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -863,7 +863,7 @@ async function init() {
     setVolume: (v) => setVolume(v, true),
     snapshot, bus, el, openSheet,
     closeSheet: () => { if (sheet().open) sheet().close(); },
-    onCount: (n) => { $('#remoteBtn').textContent = n ? `Remote · ${n}` : 'Remote'; },
+    onCount: (n, away = 0) => { $('#remoteBtn').textContent = (n ? `Remote · ${n}` : 'Remote') + (away ? ` · ${away} away` : ''); },
   });
   $('#remoteBtn').hidden = false;
   $('#remoteBtn').addEventListener('click', openPairingSheet);
@@ -931,6 +931,6 @@ function setupKeys() {
 }
 
 // Exposed for automated tests and the remote module.
-window.cuepad = { state, engine, setVolume, getVolume: () => volume, toggle, stopAll, fadeAll, pauseAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount };
+window.cuepad = { state, engine, setVolume, getVolume: () => volume, toggle, stopAll, fadeAll, pauseAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount, pairedCount, disconnectAll };
 
 init();

@@ -1,17 +1,18 @@
 // Shared layout helpers: square tile grid, the Pause button, and the
 // landscape guard for the main iPad.
 
-const GAP = 10;
-const PAD_X = 32; // grid padding left + right
-const PAD_Y = 24; // grid padding top + bottom
 
 // Lays out `count` square tiles. Picks the largest square size that fits every
 // tile on screen without scrolling; if even minSide doesn't fit, it fills the
 // width and lets the grid scroll. Returns { fits, side, cols }.
 export function squareGrid(grid, count, { minSide = 96, maxSide = 200 } = {}) {
   const rect = grid.getBoundingClientRect();
-  const w = rect.width - PAD_X;
-  const h = rect.height - PAD_Y;
+  // Read the real padding and gap, which are smaller on phones.
+  const cs = getComputedStyle(grid);
+  const px = (v) => parseFloat(v) || 0;
+  const GAP = px(cs.rowGap) || 10;
+  const w = rect.width - px(cs.paddingLeft) - px(cs.paddingRight);
+  const h = rect.height - px(cs.paddingTop) - px(cs.paddingBottom);
   let best = null;
   if (count > 0 && w > 0 && h > 0) {
     for (let cols = 1; cols <= 14; cols++) {

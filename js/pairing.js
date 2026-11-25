@@ -68,17 +68,23 @@ function waitForIce(pc) {
 // ---------------------------------------------------------------- link
 
 // A small wrapper with a uniform API: send(obj), onmessage(obj), onstate(state).
+// A standby link is one the main iPad keeps waiting for a remote to come back
+// on; it ignores ICE failures until it has opened, because a half-finished
+// reconnect attempt shouldn't use it up.
 class Link extends EventTarget {
-  constructor(pc) {
+  constructor(pc, { standby = false } = {}) {
     super();
     this.pc = pc;
     this.channel = null;
+    this.standby = standby;
+    this.opened = false;
     this.state = 'connecting';
     pc.addEventListener('connectionstatechange', () => {
       const s = pc.connectionState;
       if (s === 'connected' && this.channel && this.channel.readyState === 'open') this.setState('open');
-      else if (s === 'disconnected') this.setState('reconnecting');
-      else if (s === 'failed' || s === 'closed') this.setState('closed');
+      else if (s === 'disconnected' && this.opened) this.setState('reconnecting');
+      else if (s === 'closed') this.setState('closed');
+      else if (s === 'failed' && (this.opened || !this.standby)) this.setState('closed');
     });
   }
   attach(channel) {
@@ -91,6 +97,7 @@ class Link extends EventTarget {
   }
   setState(s) {
     if (this.state === s || this.state === 'closed') return;
+    if (s === 'open') this.opened = true;
     this.state = s;
     this.dispatchEvent(new CustomEvent('state', { detail: s }));
   }
@@ -108,6 +115,10 @@ class Link extends EventTarget {
 }
 
 const RTC_CONFIG = { iceServers: [] }; // local network only
+
+function rtcConfig(identity) {
+  return identity && identity.cert ? { ...RTC_CONFIG, certificates: [identity.cert] } : RTC_CONFIG;
+}
 
 // Main iPad: returns { link, offerText, accept(answerText) }.
 export async function createHostOffer() {
@@ -129,16 +140,134 @@ export async function createHostOffer() {
 }
 
 // Remote: given the main iPad's offer, returns { link, answerText }.
-export async function createRemoteAnswer(offerText) {
+export async function createRemoteAnswer(offerText, identity = null) {
   const desc = await decodeDesc(offerText);
   if (desc.type !== 'offer') throw new Error('Not a pairing code');
-  const pc = new RTCPeerConnection(RTC_CONFIG);
+  const pc = new RTCPeerConnection(rtcConfig(identity));
   const link = new Link(pc);
   pc.addEventListener('datachannel', (e) => link.attach(e.channel));
   await pc.setRemoteDescription(desc);
   await pc.setLocalDescription(await pc.createAnswer());
   await waitForIce(pc);
   return { link, answerText: ANSWER_PREFIX + (await encodeDesc(pc.localDescription)) };
+}
+
+// ---------------------------------------------------------------- reconnect
+
+// Only the first connection needs the QR codes. While a remote is connected,
+// the main iPad prepares a standby connection and sends its details over the
+// live link. The remote answers with a fixed identity: a saved certificate and
+// fixed ICE credentials. The main iPad applies that answer straight away and
+// leaves the standby waiting. If the link drops, the remote rebuilds exactly
+// the same answer on its own and connects to the waiting standby, with no
+// codes to scan. Only the main iPad has to stay awake and keep the app open.
+
+const ID_KEY = 'cuepad.remote.identity';
+const CERT_DB = 'cuepad-remote';
+
+function randomToken(len) {
+  const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  const bytes = crypto.getRandomValues(new Uint8Array(len));
+  let out = '';
+  for (const b of bytes) out += chars[b % chars.length];
+  return out;
+}
+
+function certStore(mode, fn) {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(CERT_DB, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore('kv');
+    req.onerror = () => reject(req.error);
+    req.onsuccess = () => {
+      const db = req.result;
+      const tx = db.transaction('kv', mode);
+      const r = fn(tx.objectStore('kv'));
+      tx.oncomplete = () => { db.close(); resolve(r && r.result); };
+      tx.onerror = tx.onabort = () => { db.close(); reject(tx.error); };
+    };
+  });
+}
+
+async function loadCert() {
+  try {
+    const cert = await certStore('readonly', (s) => s.get('cert'));
+    if (cert && (!cert.expires || cert.expires > Date.now() + 86400000)) return cert;
+  } catch {}
+  return null;
+}
+
+let identityPromise = null;
+
+// The remote's long-lived identity. The certificate is kept in IndexedDB so the
+// remote can reconnect even after the browser reloads the page; if this
+// browser can't store it, it lives for as long as the page stays open.
+export function remoteIdentity() {
+  if (identityPromise) return identityPromise;
+  identityPromise = (async () => {
+    let saved = null;
+    try { saved = JSON.parse(localStorage.getItem(ID_KEY) || 'null'); } catch {}
+    if (!saved || !saved.id) {
+      saved = { id: randomToken(12), ufrag: randomToken(8), pwd: randomToken(24) };
+      try { localStorage.setItem(ID_KEY, JSON.stringify(saved)); } catch {}
+    }
+    let cert = await loadCert();
+    if (!cert) {
+      try {
+        cert = await RTCPeerConnection.generateCertificate({ name: 'ECDSA', namedCurve: 'P-256', expires: 180 * 86400000 });
+        try { await certStore('readwrite', (s) => s.put(cert, 'cert')); } catch {}
+      } catch { cert = null; }
+    }
+    return { ...saved, cert };
+  })();
+  return identityPromise;
+}
+
+function withIce(sdp, ufrag, pwd) {
+  return sdp
+    .replace(/a=ice-ufrag:[^\r\n]*/g, `a=ice-ufrag:${ufrag}`)
+    .replace(/a=ice-pwd:[^\r\n]*/g, `a=ice-pwd:${pwd}`);
+}
+
+// Main iPad: a connection that waits for one particular remote to come back.
+// Returns { link, offer, arm(answerSdp) }.
+export async function createStandby() {
+  const pc = new RTCPeerConnection(RTC_CONFIG);
+  const link = new Link(pc, { standby: true });
+  link.attach(pc.createDataChannel('cue', { ordered: true }));
+  await pc.setLocalDescription(await pc.createOffer());
+  await waitForIce(pc);
+  return {
+    link,
+    offer: pc.localDescription.sdp,
+    async arm(answerSdp) {
+      await pc.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+    },
+  };
+}
+
+// Remote: the answer it will reproduce later for this standby offer. Nothing
+// connects yet.
+export async function standbyAnswer(offerSdp, identity) {
+  if (!identity || !identity.cert) throw new Error('No saved identity');
+  const pc = new RTCPeerConnection(rtcConfig(identity));
+  try {
+    await pc.setRemoteDescription({ type: 'offer', sdp: offerSdp });
+    const answer = await pc.createAnswer();
+    return withIce(answer.sdp, identity.ufrag, identity.pwd);
+  } finally {
+    pc.close();
+  }
+}
+
+// Remote: connect to a waiting standby without any new codes.
+export async function reconnectToStandby(offerSdp, identity) {
+  const pc = new RTCPeerConnection(rtcConfig(identity));
+  const link = new Link(pc);
+  pc.addEventListener('datachannel', (e) => link.attach(e.channel));
+  await pc.setRemoteDescription({ type: 'offer', sdp: offerSdp });
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription({ type: 'answer', sdp: withIce(answer.sdp, identity.ufrag, identity.pwd) });
+  return link;
 }
 
 // ---------------------------------------------------------------- QR helpers
