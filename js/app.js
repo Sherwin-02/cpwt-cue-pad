@@ -1,8 +1,9 @@
 import { Engine } from './engine.js';
 import * as db from './db.js';
 import * as backup from './backup.js';
+import { setupRemoteHost, openPairingSheet, remoteCount } from './remote-host.js';
 
-export const APP_VERSION = '1.0.0';
+export const APP_VERSION = '1.1.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -733,6 +734,17 @@ async function init() {
     if (state.started && engine.ctx && engine.ctx.state !== 'running') showOverlay('Tap anywhere to turn audio back on');
   });
 
+  setupRemoteHost({
+    toggle: (id) => { toggle(id); kick(); },
+    stopAll: () => { stopAll(); kick(); },
+    fadeAll: () => { fadeAll(); kick(); },
+    snapshot, bus, el, openSheet,
+    closeSheet: () => { if (sheet().open) sheet().close(); },
+    onCount: (n) => { $('#remoteBtn').textContent = n ? `Remote · ${n}` : 'Remote'; },
+  });
+  $('#remoteBtn').hidden = false;
+  $('#remoteBtn').addEventListener('click', openPairingSheet);
+
   setupGridInput();
   $('#startOverlay').addEventListener('pointerdown', (e) => { e.preventDefault(); start(); });
   $('#startOverlay').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') start(); });
@@ -765,6 +777,6 @@ async function init() {
 }
 
 // Exposed for automated tests and the remote module.
-window.cuepad = { state, engine, toggle, stopAll, fadeAll, snapshot, bus, start, addFiles };
+window.cuepad = { state, engine, toggle, stopAll, fadeAll, snapshot, bus, start, addFiles, remoteCount };
 
 init();

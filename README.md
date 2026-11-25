@@ -29,6 +29,19 @@ On the day:
 
 Per-cue settings: name, colour, volume (0 to 150%), start point, fade in, fade out, loop, and play over other cues.
 
+## Remote (phone or second iPad)
+
+The main iPad plays all the audio. A remote shows the same tiles and sends taps to it directly over the local wifi, with no internet and no server.
+
+1. **Once, beforehand, while online:** open the app's address in Safari on the remote device, so it's saved for offline use.
+2. On the main iPad, tap **Remote**. A QR code and the front-camera view appear.
+3. Scan the QR code with the remote's Camera app and tap the link.
+4. The remote shows its own QR code. Hold it up to the main iPad's front camera. Both say **Connected** within a few seconds.
+
+Pair again for each event. You can connect several remotes. If a remote drops, the main iPad keeps playing and can still be tapped directly. Short drop-outs reconnect by themselves. After a longer drop-out, tap **Remote** and pair again.
+
+Some church or guest wifi networks stop devices from talking to each other. If pairing never connects, put both devices on a phone hotspot or a small travel router.
+
 ## Audio files
 
 MP3 at 320 kbps, 44.1 kHz is recommended. AAC (.m4a) and WAV also work. Trim silence at the start, or set a start point on the cue.
@@ -49,10 +62,13 @@ Plain HTML, CSS and JavaScript with no build step. Any static host works. It is 
 - `js/app.js`: UI, shows and editing
 - `js/db.js`: on-device storage (IndexedDB)
 - `js/backup.js`: `.cuepad` backup files
+- `js/pairing.js`: direct device-to-device link (WebRTC data channel) and QR helpers. It's the only file that knows about the transport
+- `js/remote-host.js` / `js/remote-client.js`: remote on the main iPad / on the remote device
 - `sw.js`: offline cache. **Bump `VERSION` whenever app files change**, so devices get the update (Shows → Update).
 
 Smoke test (needs Playwright and ffmpeg):
 
 ```
 node tests/smoke.mjs
+node tests/remote.mjs
 ```
