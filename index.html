@@ -18,7 +18,7 @@
   <div class="app" id="app">
     <header class="topbar">
       <div class="brand">
-        <img id="logo" class="logo" src="assets/logo.png" alt="Citipointe Church" hidden>
+        <img id="logo" class="logo" src="assets/logo.svg" alt="Citipointe Church">
         <div class="brand-text">
           <span class="church">Citipointe Church</span>
           <span class="app-name">CPWT Cue Pad</span>
@@ -36,7 +36,10 @@
 
     <div id="banner" class="banner" role="status" hidden></div>
 
-    <main id="grid" class="grid" aria-label="Cues"></main>
+    <div class="stage">
+      <main id="grid" class="grid" aria-label="Cues"></main>
+      <div id="volume" class="vol"></div>
+    </div>
 
     <footer class="bottombar">
       <div id="now" class="now" aria-live="polite">Nothing playing</div>

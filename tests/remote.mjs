@@ -20,7 +20,7 @@ try { await access(track); } catch {
   execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=330:duration=40', '-ac', '2', '-b:a', '320k', track]);
 }
 
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.webmanifest': 'application/manifest+json' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml', '.webmanifest': 'application/manifest+json' };
 const srv = await new Promise((resolve) => {
   const s = createServer(async (req, res) => {
     let p = decodeURIComponent(new URL(req.url, 'http://x').pathname);
@@ -98,6 +98,27 @@ await remote.waitForTimeout(1200);
 const info = await remote.textContent('.tile .info');
 check(/^−0:3\d$/.test(info), `remote shows time left (${info})`);
 await remote.screenshot({ path: path.join(fixtures, 'remote-playing.png') });
+
+// Volume: a tap must not change it, a drag on the remote changes the main iPad
+const vbox = await remote.locator('.vol-track').boundingBox();
+await remote.mouse.click(vbox.x + vbox.width / 2, vbox.y + vbox.height * 0.8);
+await remote.waitForTimeout(300);
+check(await host.evaluate(() => window.cuepad.getVolume()) === 1, 'tapping the volume rail does not jump the volume');
+await remote.mouse.move(vbox.x + vbox.width / 2, vbox.y + 20);
+await remote.mouse.down();
+await remote.mouse.move(vbox.x + vbox.width / 2, vbox.y + 20 + vbox.height * 0.4, { steps: 8 });
+await remote.mouse.up();
+await host.waitForFunction(() => Math.abs(window.cuepad.getVolume() - 0.6) < 0.05, null, { timeout: 3000 }).catch(() => {});
+const hv = await host.evaluate(() => window.cuepad.getVolume());
+check(Math.abs(hv - 0.6) < 0.05, `dragging the remote's volume sets the main iPad to ${Math.round(hv * 100)}%`);
+await host.waitForTimeout(200);
+const hostLabel = await host.textContent('.vol-value');
+check(hostLabel === `${Math.round(hv * 100)}%`, `main iPad's slider follows the remote (${hostLabel})`);
+const gain = await host.evaluate(() => window.cuepad.engine.master.gain.value);
+check(Math.abs(gain - hv * hv) < 0.02, `master gain applied (${gain.toFixed(2)})`);
+await host.evaluate(() => window.cuepad.setVolume(0.9));
+await remote.waitForFunction(() => document.querySelector('.vol-value').textContent === '90%', null, { timeout: 3000 }).catch(() => {});
+check(await remote.textContent('.vol-value') === '90%', 'remote slider follows the main iPad');
 
 await remote.locator('#stopAll').dispatchEvent('pointerdown');
 await host.waitForFunction(() => window.cuepad.engine.players.size === 0, null, { timeout: 3000 });

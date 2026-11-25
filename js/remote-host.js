@@ -44,6 +44,7 @@ function addLink(link) {
     else if (m.t === 'fadeAll') api.fadeAll();
     else if (m.t === 'go') api.go();
     else if (m.t === 'step') api.stepNext(m.delta < 0 ? -1 : 1);
+    else if (m.t === 'volume') api.setVolume(m.v);
     else if (m.t === 'hello') send(link, api.snapshot());
     setTimeout(() => broadcast(true), 30);
   });
