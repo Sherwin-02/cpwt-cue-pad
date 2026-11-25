@@ -178,7 +178,11 @@ await tapAndCheck('remote reconnects a second time');
 // remote comes back on the standby. The old one must be replaced, not doubled.
 await remote.waitForFunction(() => window.cuepadRemote.pairing.offer && window.cuepadRemote.link.state === 'open', null, { timeout: 8000 });
 await remote.waitForTimeout(1500);
-await remote.evaluate(() => { const l = window.cuepadRemote.link; l.close = () => {}; window.cuepadRemote.reconnect(); });
+await remote.evaluate(() => { const l = window.cuepadRemote.link; window.oldLink = l; l.close = () => {}; window.cuepadRemote.reconnect(); });
+// The old link is still open on both sides here, so wait for the remote to
+// switch to the new one before tapping, or the tap races the handover.
+await remote.waitForFunction(() => window.cuepadRemote.link !== window.oldLink, null, { timeout: 10000 });
+await host.waitForFunction(() => window.cuepad.remoteCount() === 1, null, { timeout: 10000 }).catch(() => {});
 await tapAndCheck('remote reconnects while the main iPad still holds the old link');
 await host.waitForTimeout(300);
 check(await host.evaluate(() => window.cuepad.remoteCount()) === 1, `old link is replaced, not counted twice (${await host.evaluate(() => window.cuepad.remoteCount())})`);
