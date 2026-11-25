@@ -4,7 +4,7 @@ import * as backup from './backup.js';
 import { setupRemoteHost, openPairingSheet, remoteCount } from './remote-host.js';
 import { createVolumeRail, toGain } from './volume.js';
 
-export const APP_VERSION = '1.2.0';
+export const APP_VERSION = '1.3.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -61,6 +61,7 @@ const state = {
   swReg: null,
   fits: false,
   bannerMsg: null,
+  nextId: null,
 };
 
 const engine = new Engine((trackId) => db.trackBytes(trackId));
@@ -101,6 +102,98 @@ export function toggle(tileId) {
     }
   }
   engine.play(tile);
+  // Starting a cue by hand moves GO along to the cue after it, so GO always
+  // follows the operator. "Play over" stings are one-offs and leave it alone.
+  if (!tile.layer) setNextIndex(state.show.tiles.indexOf(tile) + 1);
+}
+
+// ---------------------------------------------------------------- GO / running order
+//
+// state.nextId is the cue GO plays next: a tile id, or END after the last cue.
+
+const END = 'end';
+const GO_GUARD_MS = 400; // ignore a second GO this soon (double tap, pedal bounce)
+let lastGoAt = -Infinity;
+
+export function nextIndex() {
+  const tiles = state.show ? state.show.tiles : [];
+  if (state.nextId === END) return tiles.length;
+  const i = tiles.findIndex((t) => t.id === state.nextId);
+  return i < 0 ? 0 : i;
+}
+
+function setNextIndex(i) {
+  if (!state.show) return;
+  const tiles = state.show.tiles;
+  i = Math.max(0, Math.min(tiles.length, i));
+  const id = i >= tiles.length ? END : tiles[i].id;
+  if (id === state.nextId) return;
+  state.nextId = id;
+  db.setMeta(`next:${state.show.id}`, id).catch(() => {});
+  renderNext();
+  notify();
+}
+
+export function go() {
+  const now = performance.now();
+  if (now - lastGoAt < GO_GUARD_MS) return;
+  lastGoAt = now;
+  const tiles = state.show ? state.show.tiles : [];
+  const i = nextIndex();
+  if (i >= tiles.length) { flashNext(); return; }
+  const tile = tiles[i];
+  if (!engine.running) {
+    showOverlay('Tap anywhere to turn audio back on');
+    return;
+  }
+  if (engine.prepStatus(tile.id) !== 'ready') {
+    flash(tile.id);
+    flashNext();
+    return;
+  }
+  if (!engine.isPlaying(tile.id)) toggle(tile.id);
+  setNextIndex(i + 1);
+}
+
+export function stepNext(delta) {
+  setNextIndex(nextIndex() + delta);
+}
+
+function nextInfo() {
+  const tiles = state.show ? state.show.tiles : [];
+  if (!tiles.length) return { id: null, n: 0, label: 'No cues', end: true };
+  const i = nextIndex();
+  if (i >= tiles.length) return { id: null, n: 0, label: 'End of show', end: true };
+  return { id: tiles[i].id, n: i + 1, label: tiles[i].label, end: false };
+}
+
+function renderNext() {
+  const info = nextInfo();
+  const name = $('#nextName');
+  name.textContent = info.end ? info.label : `${info.n}. ${info.label}`;
+  name.classList.toggle('end', info.end);
+  const tiles = state.show ? state.show.tiles : [];
+  $('#prevCue').disabled = nextIndex() === 0;
+  $('#skipCue').disabled = info.end;
+  $('#goBtn').disabled = info.end;
+  for (const node of document.querySelectorAll('#grid .tile[data-id]')) {
+    node.classList.toggle('next', !state.editing && node.dataset.id === info.id);
+  }
+  if (!tiles.length) $('#prevCue').disabled = true;
+}
+
+function flashNext() {
+  const node = document.querySelector('.next-box');
+  node.classList.remove('flash');
+  void node.offsetWidth;
+  node.classList.add('flash');
+}
+
+async function loadNext() {
+  const saved = state.show ? await db.getMeta(`next:${state.show.id}`) : null;
+  const tiles = state.show ? state.show.tiles : [];
+  state.nextId = saved === END || tiles.some((t) => t.id === saved) ? saved : (tiles[0] ? tiles[0].id : END);
+  renderNext();
 }
 
 export function stopAll() {
@@ -143,6 +236,7 @@ export function snapshot() {
         loop: !!t.loop,
       };
     }) : [],
+    next: nextInfo(),
   };
 }
 
@@ -266,6 +360,7 @@ function renderGrid() {
   }
   layoutGrid();
   updateTiles();
+  renderNext();
 }
 
 // Cheap per-frame update of tile state, progress and the bottom bar.
@@ -496,6 +591,11 @@ function openTileEditor(tileId) {
       previewBtn,
       el('button', { class: 'btn', type: 'button', onclick: () => $('#replacePicker').click() }, 'Replace audio')),
     el('div', { class: 'btn-row' },
+      el('button', {
+        class: 'btn', type: 'button', disabled: nextIndex() === idx,
+        onclick: (e) => { setNextIndex(idx); e.currentTarget.disabled = true; e.currentTarget.textContent = 'This is the next cue for GO'; },
+      }, nextIndex() === idx ? 'This is the next cue for GO' : 'Make this the next cue for GO')),
+    el('div', { class: 'btn-row' },
       el('button', { class: 'btn', type: 'button', disabled: idx === 0, onclick: () => moveTile(tile.id, -1) }, '◀ Move earlier'),
       el('button', { class: 'btn', type: 'button', disabled: idx === state.show.tiles.length - 1, onclick: () => moveTile(tile.id, 1) }, 'Move later ▶')),
     el('div', { class: 'divider' }),
@@ -505,7 +605,9 @@ function openTileEditor(tileId) {
         onclick: async () => {
           if (!confirm(`Delete cue "${tile.label}"? The audio stays on the iPad for other shows.`)) return;
           engine.stop(tile.id, 0);
+          const wasNext = nextIndex() === idx;
           state.show.tiles = state.show.tiles.filter((t) => t.id !== tile.id);
+          if (wasNext) { state.nextId = null; setNextIndex(idx); }
           sheet().close();
           await commit(true);
         },
@@ -528,6 +630,8 @@ async function moveTile(id, delta) {
 
 async function addFiles(files, replaceTileId = null) {
   if (!files.length) return;
+  const startLen = state.show.tiles.length;
+  const wasAtEnd = !replaceTileId && nextIndex() >= startLen;
   state.bannerMsg = `Saving ${files.length} file${files.length > 1 ? 's' : ''} to the iPad…`;
   renderBanner();
   try {
@@ -545,6 +649,8 @@ async function addFiles(files, replaceTileId = null) {
       }
     }
     await saveShow();
+    // GO was past the last cue: point it at the first cue just added.
+    if (wasAtEnd) { state.nextId = null; setNextIndex(startLen); }
   } catch (err) {
     alert('Could not save audio: ' + (err.message || err));
   }
@@ -563,6 +669,7 @@ async function openShow(id) {
   if (engine.players.size) engine.stopAll(0.5);
   state.show = show;
   await db.setMeta('currentShow', id);
+  await loadNext();
   renderAll();
   loadShowAudio();
   notify();
@@ -634,6 +741,8 @@ function openShowsSheet() {
         }
       }),
       act('Import backup', () => $('#backupPicker').click())),
+    el('div', { class: 'btn-row' },
+      act('Start again from cue 1', () => { setNextIndex(0); sheet().close(); })),
     el('div', { class: 'divider' }),
     el('div', { class: 'btn-row' },
       act('Delete this show', async () => {
@@ -741,6 +850,7 @@ async function init() {
   if (!state.shows.length) await createShow('My first show');
   const currentId = await db.getMeta('currentShow');
   state.show = state.shows.find((s) => s.id === currentId) || state.shows[0];
+  await loadNext();
 
   engine.addEventListener('prep', () => { updateTiles(); renderStatus(); renderBanner(); notify(); });
   engine.addEventListener('playback', () => { kick(); notify(); });
@@ -753,6 +863,8 @@ async function init() {
     toggle: (id) => { toggle(id); kick(); },
     stopAll: () => { stopAll(); kick(); },
     fadeAll: () => { fadeAll(); kick(); },
+    go: () => { go(); kick(); },
+    stepNext,
     setVolume: (v) => setVolume(v, true),
     snapshot, bus, el, openSheet,
     closeSheet: () => { if (sheet().open) sheet().close(); },
@@ -773,6 +885,11 @@ async function init() {
   $('#showBtn').addEventListener('click', openShowsSheet);
   $('#stopAll').addEventListener('pointerdown', (e) => { e.preventDefault(); stopAll(); kick(); });
   $('#fadeAll').addEventListener('pointerdown', (e) => { e.preventDefault(); fadeAll(); kick(); });
+  $('#goBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); go(); kick(); });
+  // blur() so a later Space/Enter from a pedal is GO, not another click here.
+  $('#prevCue').addEventListener('click', (e) => { e.currentTarget.blur(); stepNext(-1); });
+  $('#skipCue').addEventListener('click', (e) => { e.currentTarget.blur(); stepNext(1); });
+  setupKeys();
   $('#filePicker').addEventListener('change', (e) => { const files = [...e.target.files]; e.target.value = ''; addFiles(files); });
   $('#replacePicker').addEventListener('change', (e) => {
     const files = [...e.target.files]; e.target.value = '';
@@ -792,7 +909,31 @@ async function init() {
   loadShowAudio();
 }
 
+// A Bluetooth keyboard or page-turner pedal can drive the show:
+// GO = Space, Enter, Page Down, → or ↓. Back one = Page Up, ← or ↑. Esc = Fade all.
+function setupKeys() {
+  const GO_KEYS = new Set([' ', 'Enter', 'PageDown', 'ArrowRight', 'ArrowDown']);
+  const BACK_KEYS = new Set(['PageUp', 'ArrowLeft', 'ArrowUp']);
+  document.addEventListener('keydown', (e) => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    if (sheet().open || !$('#startOverlay').hidden || state.editing) return;
+    if (e.target.closest && e.target.closest('input, textarea, select')) return;
+    // Arrow keys on a focused slider (the volume rail) belong to the slider.
+    if (e.key.startsWith('Arrow') && e.target.closest && e.target.closest('[role="slider"]')) return;
+    if (GO_KEYS.has(e.key)) {
+      e.preventDefault();
+      if (!e.repeat) { go(); kick(); }
+    } else if (BACK_KEYS.has(e.key)) {
+      e.preventDefault();
+      stepNext(-1);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      fadeAll(); kick();
+    }
+  });
+}
+
 // Exposed for automated tests and the remote module.
-window.cuepad = { state, engine, setVolume, getVolume: () => volume, toggle, stopAll, fadeAll, snapshot, bus, start, addFiles, remoteCount };
+window.cuepad = { state, engine, setVolume, getVolume: () => volume, toggle, stopAll, fadeAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount };
 
 init();

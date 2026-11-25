@@ -28,6 +28,18 @@ On the day:
 | Edit | Add, rename, recolour, reorder or delete cues and change their settings. Taps don't play in Edit mode (use Preview) |
 | Show name | Switch shows, create, rename, duplicate, delete, export or import a backup |
 
+## GO: running the show in order
+
+The **Next** box beside **GO** shows the cue that GO will play, and that tile has a green **NEXT** badge. Tap **GO** to play it, and Next moves to the cue after it. So for a programme laid out in order, the operator only needs GO.
+
+- **◀ / ▶** beside Next move it back or skip a cue without playing anything.
+- Tapping a tile yourself plays it and moves Next to the cue after it, so GO always carries on from wherever you are. Cues set to **Play over other cues** (stings) don't move Next.
+- A second GO within 0.4 s is ignored, so a double tap can't skip a cue.
+- After the last cue, Next says **End of show**. **Shows → Start again from cue 1** resets it, and **Edit → (a cue) → Make this the next cue for GO** jumps to any cue.
+- Next is remembered per show, even if the app is closed.
+- A remote gets the same GO, ◀ and ▶ buttons.
+- A Bluetooth keyboard or page-turner pedal works too: **Space, Enter, Page Down, → or ↓** is GO, **Page Up, ← or ↑** moves Next back, and **Esc** fades all.
+
 Per-cue settings: name, colour, volume (0 to 150%), start point, fade in, fade out, loop, and play over other cues.
 
 ## Remote (phone or second iPad)
@@ -72,4 +84,5 @@ Smoke test (needs Playwright and ffmpeg):
 ```
 node tests/smoke.mjs
 node tests/remote.mjs
+node tests/go.mjs
 ```
