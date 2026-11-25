@@ -52,7 +52,13 @@ The main iPad plays all the audio. A remote shows the same tiles and sends taps 
 3. Scan the QR code with the remote's Camera app and tap the link.
 4. The remote shows its own QR code. Hold it up to the main iPad's front camera. Both say **Connected** within a few seconds.
 
-Pair again for each event. You can connect several remotes. If a remote drops, the main iPad keeps playing and can still be tapped directly. Short drop-outs reconnect by themselves. After a longer drop-out, tap **Remote** and pair again.
+You only scan once. After that the remote reconnects by itself whenever the link drops, for example when the phone's screen locks, you switch apps, or the wifi blips, with no walking back to the main iPad. Its screen says **Reconnecting…** and then **Connected** again within a few seconds of the phone being back on and unlocked. The main iPad keeps playing the whole time and can still be tapped directly. The Remote button shows how many remotes are connected, and how many are away and expected back.
+
+There's no idle timeout: while both screens are on and on the same wifi, the link stays up for the whole event.
+
+The main iPad holds the pairing for as long as Cue Pad stays open on it. If Cue Pad is closed or reloaded on the main iPad, each remote has to scan once more (the remote says so after a few tries). **Remote → Disconnect and forget all remotes** ends every pairing.
+
+You can connect several remotes. Phones work upright or sideways.
 
 Some church or guest wifi networks stop devices from talking to each other. If pairing never connects, put both devices on a phone hotspot or a small travel router.
 
@@ -76,7 +82,7 @@ Plain HTML, CSS and JavaScript with no build step. Any static host works. It is 
 - `js/app.js`: UI, shows and editing
 - `js/db.js`: on-device storage (IndexedDB)
 - `js/backup.js`: `.cuepad` backup files
-- `js/pairing.js`: direct device-to-device link (WebRTC data channel) and QR helpers. It's the only file that knows about the transport
+- `js/pairing.js`: direct device-to-device link (WebRTC data channel), QR helpers, and reconnecting without codes. It's the only file that knows about the transport. While a remote is connected, the main iPad keeps a standby connection waiting for it. The remote answers that standby with a fixed identity (a saved certificate and fixed ICE credentials), so after a drop it can rebuild the same answer and connect again with nothing to scan
 - `js/remote-host.js` / `js/remote-client.js`: remote on the main iPad / on the remote device
 - `sw.js`: offline cache. **Bump `VERSION` whenever app files change**, so devices get the update (Shows → Update).
 

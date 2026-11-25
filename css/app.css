@@ -338,10 +338,28 @@ input[type="range"] { width: 100%; accent-color: var(--apricot); }
 
 .remote-pair { grid-column: 1 / -1; text-align: center; padding: 16px 8px; line-height: 1.45; }
 .remote-pair h2 { color: var(--apricot); margin: 4px 0 8px; }
+/* Remote pairing / reconnecting: the code gets the whole screen */
+body.remote-pairing .vol,
+body.remote-pairing .bottombar { display: none; }
+body.remote-pairing .grid { display: block; padding: 12px 16px calc(16px + env(safe-area-inset-bottom)); touch-action: pan-y; }
+body.remote-pairing .remote-pair { max-width: 520px; margin: 0 auto; padding: 8px 0; }
+body.remote-pairing .remote-pair h2 { font-size: 22px; }
+body.remote-pairing .remote-pair p { margin: 8px 0; }
+body.remote-pairing .qr-box.big { width: min(100%, 64vh, 460px); margin: 12px auto; padding: 12px; }
 body.remote-mode .show-btn { cursor: default; }
 body.remote-mode .show-btn .caret { display: none; }
 body.remote-mode .grid { touch-action: pan-y; }
 @media (max-width: 700px) { body.remote-mode .status { display: block; font-size: 13px; } }
+/* Remote on a portrait phone: slimmer rail and padding so three tile columns fit */
+@media (max-width: 500px) {
+  body.remote-mode .grid { padding: 10px; --gap: 8px; }
+  body.remote-mode .vol { flex-basis: 50px; padding: 10px 8px 12px 0; }
+  body.remote-mode .vol-track { width: 38px; }
+  body.remote-mode .vol-label { font-size: 10px; }
+  body.remote-mode .vol-value { font-size: 14px; }
+  body.remote-mode .bottombar { padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  body.remote-mode .tile { padding: 8px 8px 10px 10px; }
+}
 
 /* Master volume rail (always visible, right edge) */
 .vol {
@@ -406,3 +424,16 @@ body.remote-mode .grid { touch-action: pan-y; }
 .overlay.rotate { z-index: 60; cursor: default; }
 .rotate-icon { font-size: 64px; color: var(--apricot); line-height: 1; margin-bottom: 8px; }
 .rotate .overlay-msg { margin-bottom: 20px; }
+
+/* Remote on a sideways phone: keep the controls to one short row */
+@media (max-height: 500px) and (orientation: landscape) {
+  body.remote-mode .topbar { padding: 6px 16px; }
+  body.remote-mode .logo { height: 28px; }
+  body.remote-mode .brand-text .church { display: none; }
+  body.remote-mode .bottombar { flex-wrap: nowrap; padding: 8px 16px calc(8px + env(safe-area-inset-bottom)); gap: 8px; }
+  body.remote-mode .now { display: none; }
+  body.remote-mode .next-box { flex: 1.8; width: auto; min-width: 0; }
+  body.remote-mode .btn.big { flex: 1; min-width: 0; padding: 12px 10px; font-size: 17px; }
+  body.remote-mode .btn.go { flex: 1.4; font-size: 20px; }
+  body.remote-mode .grid { padding: 8px 12px; }
+}
