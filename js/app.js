@@ -2,8 +2,9 @@ import { Engine } from './engine.js';
 import * as db from './db.js';
 import * as backup from './backup.js';
 import { setupRemoteHost, openPairingSheet, remoteCount } from './remote-host.js';
+import { createVolumeRail, toGain } from './volume.js';
 
-export const APP_VERSION = '1.1.0';
+export const APP_VERSION = '1.2.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -113,9 +114,23 @@ export function fadeAll() {
   }
 }
 
+let volume = 1;
+let volumeRail = null;
+let volumeSaveTimer = null;
+
+export function setVolume(v, fromRemote = false) {
+  volume = Math.max(0, Math.min(1, Number(v) || 0));
+  engine.setMasterGain(toGain(volume));
+  if (fromRemote && volumeRail) volumeRail.set(volume);
+  clearTimeout(volumeSaveTimer);
+  volumeSaveTimer = setTimeout(() => db.setMeta('masterVolume', volume), 400);
+  notify();
+}
+
 export function snapshot() {
   const show = state.show;
   return {
+    vol: volume,
     showName: show ? show.name : '',
     tiles: show ? show.tiles.map((t, i) => {
       const p = engine.position(t.id);
@@ -167,7 +182,8 @@ function layoutGrid() {
     grid.style.setProperty('--row-h', `${best.tileH}px`);
     const size = Math.max(13, Math.min(20, best.tileH * 0.15, best.tileW * 0.11));
     grid.style.setProperty('--label-size', `${size.toFixed(1)}px`);
-    grid.style.setProperty('--label-lines', best.tileH < 115 ? 2 : 3);
+    const lines = Math.floor((best.tileH - 56) / (size * 1.15));
+    grid.style.setProperty('--label-lines', Math.max(1, Math.min(3, lines)));
     state.fits = true;
   } else {
     const cols = Math.max(1, Math.floor((w + gap) / (minW + gap)));
@@ -716,10 +732,9 @@ async function init() {
   registerSW();
   db.requestPersistence();
 
-  const logo = $('#logo');
-  logo.addEventListener('load', () => { logo.hidden = false; });
-  logo.addEventListener('error', () => logo.remove());
-  if (logo.complete && logo.naturalWidth) logo.hidden = false;
+  volume = await db.getMeta('masterVolume', 1);
+  engine.setMasterGain(toGain(volume));
+  volumeRail = createVolumeRail($('#volume'), { value: volume, onChange: (v) => setVolume(v) });
 
   for (const info of await db.listTrackInfo()) state.tracks.set(info.id, info);
   state.shows = await db.getAll('shows');
@@ -738,6 +753,7 @@ async function init() {
     toggle: (id) => { toggle(id); kick(); },
     stopAll: () => { stopAll(); kick(); },
     fadeAll: () => { fadeAll(); kick(); },
+    setVolume: (v) => setVolume(v, true),
     snapshot, bus, el, openSheet,
     closeSheet: () => { if (sheet().open) sheet().close(); },
     onCount: (n) => { $('#remoteBtn').textContent = n ? `Remote · ${n}` : 'Remote'; },
@@ -777,6 +793,6 @@ async function init() {
 }
 
 // Exposed for automated tests and the remote module.
-window.cuepad = { state, engine, toggle, stopAll, fadeAll, snapshot, bus, start, addFiles, remoteCount };
+window.cuepad = { state, engine, setVolume, getVolume: () => volume, toggle, stopAll, fadeAll, snapshot, bus, start, addFiles, remoteCount };
 
 init();

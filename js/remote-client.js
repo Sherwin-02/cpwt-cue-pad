@@ -1,6 +1,9 @@
 // Remote side: a phone or second iPad that mirrors the main iPad's tiles and
 // sends taps to it. It plays no audio itself.
 import { createRemoteAnswer, qrSvg, PAIR_PREFIX } from './pairing.js';
+import { createVolumeRail } from './volume.js';
+
+let volumeRail = null;
 
 const $ = (s) => document.querySelector(s);
 const fmt = (sec) => {
@@ -56,7 +59,7 @@ function showMessage(title, text) {
 function layout(count) {
   const grid = $('#grid');
   const w = grid.clientWidth - 32;
-  const minW = window.innerWidth < 500 ? 150 : 170;
+  const minW = window.innerWidth < 500 ? 120 : 160;
   const cols = Math.max(1, Math.min(8, Math.floor((w + 10) / (minW + 10))));
   grid.style.setProperty('--cols', cols);
   grid.style.setProperty('--row-h', window.innerWidth < 500 ? '96px' : '110px');
@@ -182,6 +185,7 @@ export async function startRemote() {
     if (m.t === 'state') {
       snap = m;
       snapAt = performance.now();
+      if (volumeRail && typeof m.vol === 'number') volumeRail.set(m.vol);
       render();
       if (connected) { setStatus('Connected'); banner(''); }
     }
@@ -227,6 +231,7 @@ export async function startRemote() {
   grid.addEventListener('contextmenu', (e) => e.preventDefault());
   $('#stopAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'stopAll' }); });
   $('#fadeAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'fadeAll' }); });
+  volumeRail = createVolumeRail($('#volume'), { value: 1, onChange: (v) => sendCmd({ t: 'volume', v }) });
   window.addEventListener('resize', () => snap && layout(snap.tiles.length));
   requestAnimationFrame(frame);
 }

@@ -42,6 +42,7 @@ function addLink(link) {
     if (m.t === 'toggle') api.toggle(m.id);
     else if (m.t === 'stopAll') api.stopAll();
     else if (m.t === 'fadeAll') api.fadeAll();
+    else if (m.t === 'volume') api.setVolume(m.v);
     else if (m.t === 'hello') send(link, api.snapshot());
     setTimeout(() => broadcast(true), 30);
   });

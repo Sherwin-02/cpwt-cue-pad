@@ -19,6 +19,7 @@ export class Engine extends EventTarget {
     this.loadBytes = loadBytes; // async (trackId) => ArrayBuffer
     this.ctx = null;
     this.master = null;
+    this.masterGain = 1;
     this.preps = new Map(); // tileId -> { status, head, playDuration, trackDuration, sig, error }
     this.players = new Map(); // tileId -> player
     this.queue = Promise.resolve();
@@ -30,6 +31,7 @@ export class Engine extends EventTarget {
     const AC = window.AudioContext || window.webkitAudioContext;
     this.ctx = new AC({ latencyHint: 'interactive' });
     this.master = this.ctx.createGain();
+    this.master.gain.value = this.masterGain;
     this.master.connect(this.ctx.destination);
     this.ctx.addEventListener('statechange', () => this.emit('contextstate'));
     return this.ctx;
@@ -126,6 +128,16 @@ export class Engine extends EventTarget {
       });
     }
     return this.queue;
+  }
+
+  // Overall output level (0..1 gain), applied smoothly to everything playing.
+  setMasterGain(g) {
+    this.masterGain = Math.max(0, Math.min(1, g));
+    if (this.master) {
+      const now = this.ctx.currentTime;
+      this.master.gain.cancelScheduledValues(now);
+      this.master.gain.setTargetAtTime(this.masterGain, now, 0.03);
+    }
   }
 
   isPlaying(tileId) {
