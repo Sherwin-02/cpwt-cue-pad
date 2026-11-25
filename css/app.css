@@ -437,3 +437,37 @@ body.remote-mode .grid { touch-action: pan-y; }
   body.remote-mode .btn.go { flex: 1.4; font-size: 20px; }
   body.remote-mode .grid { padding: 8px 12px; }
 }
+
+/* Transport strip: current cue position, -10s / +10s, Fade switch */
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  background: var(--wine-deep);
+  border-top: 1px solid rgba(194, 154, 69, 0.45);
+  font-variant-numeric: tabular-nums;
+}
+.tp-title { display: flex; flex-direction: column; min-width: 0; flex: 0 1 220px; line-height: 1.15; }
+.tp-tag { font-size: 11px; font-weight: 800; letter-spacing: 0.1em; text-transform: uppercase; color: var(--apricot); }
+.tp-name { font-size: 15px; font-weight: 700; color: var(--cream); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.transport.idle .tp-name { color: var(--cream); opacity: 0.7; font-weight: 600; }
+.tp-time { font-size: 15px; color: var(--cream); min-width: 48px; text-align: center; }
+.tp-slider { flex: 1; min-width: 80px; height: 36px; accent-color: var(--apricot); }
+.btn.tp-skip { padding: 10px 14px; min-width: 64px; background: var(--maroon); color: var(--apricot); border: 1px solid rgba(242, 183, 142, 0.5); }
+.btn.tp-fade { padding: 10px 14px; min-width: 104px; background: transparent; color: var(--apricot); border: 2px solid rgba(242, 183, 142, 0.6); }
+.btn.tp-fade[aria-pressed="true"] { background: var(--apricot); color: var(--wine); border-color: var(--apricot); }
+.bottombar { border-top: none; }
+body.remote-pairing .transport { display: none; }
+@media (max-width: 700px) {
+  .transport { flex-wrap: wrap; gap: 6px 8px; padding: 6px 10px; }
+  .tp-title { flex: 1 1 calc(100% - 130px); order: -2; }
+  .btn.tp-fade { order: -1; }
+  .tp-time { min-width: 40px; font-size: 13px; }
+  .btn.tp-skip { min-width: 52px; padding: 8px 8px; }
+  .btn.tp-fade { min-width: 0; padding: 8px 10px; }
+}
+
+/* The transport strip shows the current cue, so the bottom bar doesn't repeat it */
+.bottombar .now { display: none; }
+.bottombar { justify-content: flex-end; }

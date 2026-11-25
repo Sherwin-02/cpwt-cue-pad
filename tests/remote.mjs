@@ -123,6 +123,15 @@ check(await remote.textContent('.vol-value') === '90%', 'remote slider follows t
 await remote.locator('#pauseAll').dispatchEvent('pointerdown');
 await host.waitForFunction((id) => window.cuepad.engine.isPaused(id), tileId, { timeout: 3000 });
 check(true, 'Pause on remote pauses the main iPad');
+await remote.locator('.tp-skip[data-d="10"]').dispatchEvent('pointerdown');
+await host.waitForFunction((id) => window.cuepad.engine.position(id).pos > 9, tileId, { timeout: 3000 }).catch(() => {});
+check(await host.evaluate((id) => window.cuepad.engine.position(id).pos > 9, tileId), '+10s on remote moves the main iPad\'s cue');
+await remote.click('.tp-fade');
+await host.waitForFunction(() => window.cuepad.state.fadeMode === true, null, { timeout: 3000 }).catch(() => {});
+check(await host.evaluate(() => window.cuepad.state.fadeMode === true), 'Fade switch on remote turns fades on for the main iPad');
+await remote.waitForFunction(() => document.querySelector('.tp-fade').textContent === 'Fade: On', null, { timeout: 3000 }).catch(() => {});
+check(await remote.textContent('.tp-fade') === 'Fade: On', 'remote Fade switch shows the main iPad\'s setting');
+await host.evaluate(() => window.cuepad.setFadeMode(false));
 await remote.waitForFunction(() => document.querySelector('#pauseAll').textContent.includes('Resume'), null, { timeout: 3000 });
 check(true, 'remote Pause button turns into Resume');
 await remote.locator('#pauseAll').dispatchEvent('pointerdown');

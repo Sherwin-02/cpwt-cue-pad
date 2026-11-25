@@ -2,6 +2,9 @@
 // sends taps to it. It plays no audio itself.
 import { createRemoteAnswer, remoteIdentity, standbyAnswer, reconnectToStandby, qrSvg, PAIR_PREFIX } from './pairing.js';
 import { createVolumeRail } from './volume.js';
+import { createTransport } from './transport.js';
+
+let transport = null;
 import { renderPauseBtn, squareGrid } from './layout.js';
 
 let volumeRail = null;
@@ -119,6 +122,16 @@ function render() {
 function tick() {
   if (!snap) return;
   const elapsed = (performance.now() - snapAt) / 1000;
+  if (transport) {
+    const f = snap.focus;
+    let ff = null;
+    if (f) {
+      let pos = f.pos + (f.paused ? 0 : elapsed);
+      if (f.loop && f.dur) pos %= f.dur;
+      ff = { ...f, pos: Math.min(pos, f.dur || pos) };
+    }
+    transport.update(ff, snap.fade);
+  }
   const parts = [];
   for (const t of snap.tiles) {
     const node = document.querySelector(`.tile[data-id="${t.id}"]`);
@@ -389,5 +402,10 @@ function setupControls() {
   $('#prevCue').addEventListener('click', () => sendCmd({ t: 'step', delta: -1 }));
   $('#skipCue').addEventListener('click', () => sendCmd({ t: 'step', delta: 1 }));
   volumeRail = createVolumeRail($('#volume'), { value: 1, onChange: (v) => sendCmd({ t: 'volume', v }) });
+  transport = createTransport($('#transport'), {
+    onSeekBy: (delta) => sendCmd({ t: 'seek', delta }),
+    onSeekTo: (pos) => sendCmd({ t: 'seekTo', pos }),
+    onFadeToggle: (on) => sendCmd({ t: 'fadeMode', on }),
+  });
   window.addEventListener('resize', () => snap && renderedKey && layout(snap.tiles.length));
 }

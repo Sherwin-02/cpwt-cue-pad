@@ -82,7 +82,7 @@ check(true, 'tail of tile 2 scheduled before head ran out');
 // Tap tile 3 (not layered) -> tile 2 fades out
 await page.locator(`.tile[data-id="${ids[2]}"]`).dispatchEvent('pointerdown');
 await page.waitForTimeout(100);
-check(await page.evaluate(([a, b]) => !window.cuepad.engine.isPlaying(a) && window.cuepad.engine.isPlaying(b), [ids[1], ids[2]]), 'starting tile 3 fades out tile 2');
+check(await page.evaluate(([a, b]) => !window.cuepad.engine.isPlaying(a) && window.cuepad.engine.isPlaying(b), [ids[1], ids[2]]), 'starting tile 3 stops tile 2');
 
 // Layered sting plays over
 await page.evaluate((id) => { window.cuepad.state.show.tiles.find((t) => t.id === id).layer = true; }, ids[0]);
@@ -115,6 +115,63 @@ await page.locator('#pauseAll').dispatchEvent('pointerdown');
 await page.locator(`.tile[data-id="${ids[2]}"]`).dispatchEvent('pointerdown');
 await page.waitForTimeout(200);
 check(await page.evaluate(([a, b]) => !window.cuepad.engine.players.has(a) && window.cuepad.engine.isPlaying(b), [ids[1], ids[2]]), 'starting another cue clears the paused one');
+
+// Instant switch by default; Fade switch turns fades on
+const has = (id) => page.evaluate((i) => window.cuepad.engine.players.has(i), id);
+await page.locator('#stopAll').dispatchEvent('pointerdown');
+await page.waitForTimeout(200);
+check(await page.textContent('.tp-fade') === 'Fade: Off', 'Fade switch is off by default');
+await page.locator(`.tile[data-id="${ids[1]}"]`).dispatchEvent('pointerdown');
+await page.waitForTimeout(300);
+await page.locator(`.tile[data-id="${ids[2]}"]`).dispatchEvent('pointerdown');
+await page.waitForTimeout(150);
+check(!(await has(ids[1])) && await page.evaluate((i) => window.cuepad.engine.isPlaying(i), ids[2]), 'with Fade off, the previous cue stops immediately');
+await page.click('.tp-fade');
+check(await page.textContent('.tp-fade') === 'Fade: On', 'Fade switch turns on');
+await page.locator(`.tile[data-id="${ids[1]}"]`).dispatchEvent('pointerdown');
+await page.waitForTimeout(150);
+check(await has(ids[2]) && await page.evaluate((i) => window.cuepad.engine.players.get(i).stopping, ids[2]), 'with Fade on, the previous cue fades out');
+await page.click('.tp-fade');
+await page.locator('#stopAll').dispatchEvent('pointerdown');
+await page.waitForTimeout(200);
+
+// Transport: +10s / -10s / position slider act on the current cue
+await page.locator(`.tile[data-id="${ids[1]}"]`).dispatchEvent('pointerdown');
+await page.waitForTimeout(500);
+check((await page.textContent('.tp-name')).includes('Shepherds Dance'), 'transport shows the current cue');
+const posOf = () => page.evaluate((i) => window.cuepad.engine.position(i).pos, ids[1]);
+const a0 = await posOf();
+await page.locator('.tp-skip[data-d="10"]').dispatchEvent('pointerdown');
+await page.waitForTimeout(100);
+const a1 = await posOf();
+check(a1 > a0 + 9.8 && a1 < a0 + 10.5, `+10s jumps forward (${a0.toFixed(1)}s → ${a1.toFixed(1)}s)`);
+await page.locator('.tp-skip[data-d="-10"]').dispatchEvent('pointerdown');
+await page.locator('.tp-skip[data-d="-10"]').dispatchEvent('pointerdown');
+await page.waitForTimeout(100);
+check(await posOf() < 0.6, '-10s goes back, not before the start');
+await page.waitForFunction((i) => !!window.cuepad.engine.players.get(i).full, ids[1], { timeout: 10000 });
+await page.evaluate(() => window.cuepad.seekTo(30));
+await page.waitForTimeout(300);
+const a2 = await posOf();
+check(a2 > 30 && a2 < 30.6 && await page.evaluate((i) => window.cuepad.engine.isPlaying(i), ids[1]), `slider seek past the first 15 s plays from the full track (${a2.toFixed(1)}s)`);
+const sliderVal = await page.$eval('.tp-slider', (n) => +n.value);
+check(Math.abs(sliderVal - a2) < 1, `position slider follows playback (${sliderVal.toFixed(1)})`);
+// Seek content check: rendering from the seek offset matches the full track
+const seekOk = await page.evaluate(async (id) => {
+  const { engine } = window.cuepad;
+  const pl = engine.players.get(id);
+  const full = pl.full, sr = full.sampleRate, off = 30;
+  const oc = new OfflineAudioContext(1, sr, sr);
+  const s = oc.createBufferSource(); s.buffer = full; s.connect(oc.destination); s.start(0, off);
+  const out = (await oc.startRendering()).getChannelData(0);
+  const ref = full.getChannelData(0).subarray(Math.round(off * sr), Math.round(off * sr) + sr);
+  let d = 0; for (let i = 0; i < ref.length; i++) d = Math.max(d, Math.abs(ref[i] - out[i]));
+  return d;
+}, ids[1]);
+check(seekOk < 0.05, 'seeking lands on the right audio');
+await page.locator('#stopAll').dispatchEvent('pointerdown');
+await page.waitForTimeout(200);
+check((await page.textContent('.tp-name')) === 'Nothing playing' && await page.$eval('.tp-slider', (n) => n.disabled), 'transport goes idle when nothing plays');
 
 // Square tiles and the landscape guard
 const dims = await page.$eval('.tile:not(.add)', (n) => { const r = n.getBoundingClientRect(); return [r.width, r.height]; });

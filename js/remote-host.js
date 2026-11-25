@@ -60,6 +60,9 @@ function addLink(link) {
     else if (m.t === 'go') api.go();
     else if (m.t === 'step') api.stepNext(m.delta < 0 ? -1 : 1);
     else if (m.t === 'volume') api.setVolume(m.v);
+    else if (m.t === 'seek') api.seekBy(Number(m.delta) || 0);
+    else if (m.t === 'seekTo') api.seekTo(Number(m.pos) || 0);
+    else if (m.t === 'fadeMode') api.setFadeMode(!!m.on);
     else if (m.t === 'hello') {
       send(link, api.snapshot());
       if (typeof m.rid === 'string' && m.rid) adopt(m.rid, link, m.reconnect !== false);

@@ -3,9 +3,10 @@ import * as db from './db.js';
 import * as backup from './backup.js';
 import { setupRemoteHost, openPairingSheet, remoteCount, disconnectAll, pairedCount } from './remote-host.js';
 import { createVolumeRail, toGain } from './volume.js';
+import { createTransport } from './transport.js';
 import { renderPauseBtn, setupOrientationGuard, squareGrid } from './layout.js';
 
-export const APP_VERSION = '1.5.0';
+export const APP_VERSION = '1.6.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -93,7 +94,7 @@ export function toggle(tileId) {
     return;
   }
   if (engine.isPlaying(tileId)) {
-    engine.stop(tileId, tile.fadeOut ?? 2);
+    engine.stop(tileId, state.fadeMode ? (tile.fadeOut ?? 2) : 0);
     return;
   }
   if (engine.prepStatus(tileId) !== 'ready') {
@@ -103,11 +104,12 @@ export function toggle(tileId) {
   if (!tile.layer) {
     for (const id of engine.playingIds()) {
       const other = tileById(id);
-      engine.stop(id, other ? Math.min(other.fadeOut ?? 2, 2) : 1);
+      // Default: the previous cue cuts instantly. With Fade on, it fades out.
+      engine.stop(id, state.fadeMode && other ? Math.min(other.fadeOut ?? 2, 2) : 0);
     }
     for (const id of engine.pausedIds()) engine.stop(id, 0);
   }
-  engine.play(tile);
+  engine.play(tile, { noFade: !state.fadeMode });
   // Starting a cue by hand moves GO along to the cue after it, so GO always
   // follows the operator. "Play over" stings are one-offs and leave it alone.
   if (!tile.layer) setNextIndex(state.show.tiles.indexOf(tile) + 1);
@@ -240,11 +242,43 @@ export function setVolume(v, fromRemote = false) {
   notify();
 }
 
+// ---------------------------------------------------------------- transport (current cue)
+
+let transport = null;
+
+function focusInfo() {
+  const id = engine.focusId();
+  if (!id || !state.show) return null;
+  const i = state.show.tiles.findIndex((t) => t.id === id);
+  const p = engine.position(id);
+  if (i < 0 || !p) return null;
+  return { id, n: i + 1, label: state.show.tiles[i].label, pos: p.pos, dur: p.duration, paused: !!p.paused, loop: !!p.loop };
+}
+
+export function seekBy(delta) {
+  const f = focusInfo();
+  if (f) engine.seek(f.id, f.pos + delta);
+}
+
+export function seekTo(pos) {
+  const id = engine.focusId();
+  if (id) engine.seek(id, pos);
+}
+
+export function setFadeMode(on) {
+  state.fadeMode = !!on;
+  db.setMeta('fadeMode', state.fadeMode).catch(() => {});
+  if (transport) transport.update(focusInfo(), state.fadeMode);
+  notify();
+}
+
 export function snapshot() {
   const show = state.show;
   return {
     vol: volume,
     pause: pauseState(),
+    fade: !!state.fadeMode,
+    focus: focusInfo(),
     showName: show ? show.name : '',
     tiles: show ? show.tiles.map((t, i) => {
       const p = engine.position(t.id);
@@ -391,6 +425,7 @@ function updateTiles() {
     if (info.textContent !== text) info.textContent = text;
   }
   renderPauseBtn($('#pauseAll'), pauseState());
+  if (transport) transport.update(focusInfo(), state.fadeMode);
   const now = $('#now');
   if (!nowParts.length) {
     if (now.textContent !== 'Nothing playing') now.textContent = 'Nothing playing';
@@ -838,6 +873,13 @@ async function init() {
   volume = await db.getMeta('masterVolume', 1);
   engine.setMasterGain(toGain(volume));
   volumeRail = createVolumeRail($('#volume'), { value: volume, onChange: (v) => setVolume(v) });
+  state.fadeMode = !!(await db.getMeta('fadeMode', false));
+  transport = createTransport($('#transport'), {
+    onSeekBy: (d) => { seekBy(d); updateTiles(); kick(); },
+    onSeekTo: (p) => { seekTo(p); updateTiles(); kick(); },
+    onFadeToggle: (on) => setFadeMode(on),
+  });
+  transport.update(null, state.fadeMode);
 
   for (const info of await db.listTrackInfo()) state.tracks.set(info.id, info);
   state.shows = await db.getAll('shows');
@@ -861,6 +903,9 @@ async function init() {
     go: () => { go(); kick(); },
     stepNext,
     setVolume: (v) => setVolume(v, true),
+    seekBy: (d) => { seekBy(d); kick(); },
+    seekTo: (p) => { seekTo(p); kick(); },
+    setFadeMode,
     snapshot, bus, el, openSheet,
     closeSheet: () => { if (sheet().open) sheet().close(); },
     onCount: (n, away = 0) => { $('#remoteBtn').textContent = (n ? `Remote · ${n}` : 'Remote') + (away ? ` · ${away} away` : ''); },
@@ -931,6 +976,6 @@ function setupKeys() {
 }
 
 // Exposed for automated tests and the remote module.
-window.cuepad = { state, engine, setVolume, getVolume: () => volume, toggle, stopAll, fadeAll, pauseAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount, pairedCount, disconnectAll };
+window.cuepad = { state, engine, setVolume, seekBy, seekTo, setFadeMode, getVolume: () => volume, toggle, stopAll, fadeAll, pauseAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount, pairedCount, disconnectAll };
 
 init();
