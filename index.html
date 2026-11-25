@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Cue Pad">
+  <meta name="theme-color" content="#3A0B16">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <title>CPWT Cue Pad</title>
+  <link rel="stylesheet" href="css/app.css">
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="topbar">
+      <div class="brand">
+        <img id="logo" class="logo" src="assets/logo.png" alt="Citipointe Church" hidden>
+        <div class="brand-text">
+          <span class="church">Citipointe Church</span>
+          <span class="app-name">CPWT Cue Pad</span>
+        </div>
+      </div>
+      <button id="showBtn" class="show-btn" type="button" aria-haspopup="dialog">
+        <span id="showName">Show</span><span class="caret" aria-hidden="true">▾</span>
+      </button>
+      <div id="status" class="status" aria-live="polite"></div>
+      <div class="actions">
+        <button id="remoteBtn" class="btn ghost" type="button" hidden>Remote</button>
+        <button id="editBtn" class="btn ghost" type="button" aria-pressed="false">Edit</button>
+      </div>
+    </header>
+
+    <div id="banner" class="banner" role="status" hidden></div>
+
+    <main id="grid" class="grid" aria-label="Cues"></main>
+
+    <footer class="bottombar">
+      <div id="now" class="now" aria-live="polite">Nothing playing</div>
+      <button id="fadeAll" class="btn big fade" type="button">Fade all</button>
+      <button id="stopAll" class="btn big stop" type="button">Stop all</button>
+    </footer>
+  </div>
+
+  <div id="startOverlay" class="overlay" role="button" tabindex="0">
+    <div class="overlay-card">
+      <div class="overlay-title">CPWT Cue Pad</div>
+      <div id="startMsg" class="overlay-msg">Tap anywhere to start</div>
+    </div>
+  </div>
+
+  <dialog id="sheet" class="sheet"></dialog>
+
+  <input type="file" id="filePicker" accept="audio/*,.mp3,.m4a,.aac,.wav" multiple hidden>
+  <input type="file" id="replacePicker" accept="audio/*,.mp3,.m4a,.aac,.wav" hidden>
+  <input type="file" id="backupPicker" accept=".cuepad,application/octet-stream" hidden>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
