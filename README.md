@@ -65,6 +65,8 @@ The main iPad holds the pairing for as long as Cue Pad stays open on it. If Cue 
 
 You can connect several remotes. Phones work upright or sideways.
 
+**Adding tracks from a remote:** tap **+ Add tracks** (**+ Tracks** on a phone) and pick audio files from the phone's Files app. They're sent straight to the main iPad over the same wifi link, saved there, and added as new cues at the end of the show. The remote shows progress; keep its screen on until it says **Added**. The main iPad shows a small progress note at the top and nothing pops up over the show. Files that aren't audio are refused.
+
 Some church or guest wifi networks stop devices from talking to each other. If pairing never connects, put both devices on a phone hotspot or a small travel router.
 
 ## Audio files
@@ -89,6 +91,7 @@ Plain HTML, CSS and JavaScript with no build step. Any static host works. It is 
 - `js/backup.js`: `.cuepad` backup files
 - `js/pairing.js`: direct device-to-device link (WebRTC data channel), QR helpers, and reconnecting without codes. It's the only file that knows about the transport. While a remote is connected, the main iPad keeps a standby connection waiting for it. The remote answers that standby with a fixed identity (a saved certificate and fixed ICE credentials), so after a drop it can rebuild the same answer and connect again with nothing to scan
 - `js/remote-host.js` / `js/remote-client.js`: remote on the main iPad / on the remote device
+- `js/upload.js`: sends audio files from a remote to the main iPad in 16 KB pieces over the same link, with flow control, and checks every byte arrived before saving
 - `sw.js`: offline cache. **Bump `VERSION` whenever app files change**, so devices get the update (Shows → Update).
 
 Smoke test (needs Playwright and ffmpeg):

@@ -162,7 +162,7 @@ check(await remote.evaluate(() => !!(window.cuepadRemote.pairing && window.cuepa
 check(await host.evaluate(() => window.cuepad.pairedCount()) === 1, 'main iPad remembers the paired remote');
 
 const tapAndCheck = async (label) => {
-  await remote.waitForFunction(() => window.cuepadRemote.link && window.cuepadRemote.link.state === 'open' && document.querySelectorAll('.tile').length === 1, null, { timeout: 20000 });
+  await remote.waitForFunction(() => window.cuepadRemote?.link && window.cuepadRemote.link.state === 'open' && document.querySelectorAll('.tile').length === 1, null, { timeout: 20000 });
   await remote.locator('.tile').dispatchEvent('pointerdown');
   const ok = await host.waitForFunction((id) => window.cuepad.engine.isPlaying(id), tileId, { timeout: 3000 }).then(() => true, () => false);
   check(ok, label);
@@ -198,6 +198,35 @@ await remote.reload();
 await tapAndCheck('remote reconnects by itself after its page reloads');
 check(await host.evaluate(() => window.cuepad.remoteCount()) === 1, 'host still counts one remote');
 await remote.screenshot({ path: path.join(fixtures, 'remote-reconnected.png') });
+
+// Adding tracks from the remote: the file travels over the same link
+const sendPath = path.join(fixtures, 'Remote Upload.mp3');
+try { await access(sendPath); } catch { execFileSync('ffmpeg', ['-loglevel', 'error', '-y', '-f', 'lavfi', '-i', 'sine=frequency=550:duration=120', '-ac', '2', '-b:a', '320k', sendPath]); }
+const sendSize = (await import('node:fs')).statSync(sendPath).size;
+await remote.waitForFunction(() => !document.querySelector('#remoteAddBtn').hidden, null, { timeout: 5000 });
+check(true, 'remote shows + Add tracks once connected');
+const t0 = Date.now();
+await remote.setInputFiles('#filePicker', [sendPath]);
+await host.waitForFunction(() => window.cuepad.state.show.tiles.length === 2, null, { timeout: 30000 }).catch(() => {});
+const got = await host.evaluate(async () => {
+  const { state } = window.cuepad;
+  const t = state.show.tiles[1];
+  if (!t) return null;
+  const bytes = await (await import('./js/db.js')).trackBytes(t.trackId);
+  return { label: t.label, size: bytes.byteLength };
+});
+check(got && got.label === 'Remote Upload' && got.size === sendSize, `track sent from the remote is saved on the main iPad, byte for byte (${got && got.size} of ${sendSize} bytes, ${((Date.now() - t0) / 1000).toFixed(1)} s)`);
+await host.waitForFunction(() => { const t = window.cuepad.state.show.tiles[1]; return t && window.cuepad.engine.prepStatus(t.id) === 'ready'; }, null, { timeout: 15000 }).catch(() => {});
+check(await host.evaluate(() => window.cuepad.engine.prepStatus(window.cuepad.state.show.tiles[1].id)) === 'ready', 'the new cue is loaded and ready to play');
+await remote.waitForFunction(() => document.querySelectorAll('.tile').length === 2, null, { timeout: 5000 }).catch(() => {});
+check(await remote.evaluate(() => document.querySelectorAll('.tile').length) === 2, 'the new tile appears on the remote');
+await remote.waitForFunction(() => document.querySelector('#banner').textContent.includes('Added 1 track'), null, { timeout: 5000 }).catch(() => {});
+check(await remote.evaluate(() => document.querySelector('#banner').textContent.includes('Added 1 track')), 'remote says the track was added');
+check(!(await host.evaluate(() => document.querySelector('#sheet').open)) && await host.isHidden('#banner'), 'nothing pops up on the main iPad');
+await remote.screenshot({ path: path.join(fixtures, 'remote-added.png') });
+await remote.setInputFiles('#filePicker', [{ name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') }]);
+await remote.waitForTimeout(300);
+check((await remote.textContent('#banner')).includes('aren\'t audio') && await host.evaluate(() => window.cuepad.state.show.tiles.length) === 2, 'non-audio files are refused');
 
 // 4. Forget on the main iPad: the remote is told and stops trying.
 await host.evaluate(() => window.cuepad.disconnectAll());

@@ -4,9 +4,10 @@ import * as backup from './backup.js';
 import { setupRemoteHost, openPairingSheet, remoteCount, disconnectAll, pairedCount } from './remote-host.js';
 import { createVolumeRail, toGain } from './volume.js';
 import { createTransport } from './transport.js';
+import { createReceiver } from './upload.js';
 import { renderPauseBtn, setupOrientationGuard, squareGrid } from './layout.js';
 
-export const APP_VERSION = '1.7.0';
+export const APP_VERSION = '1.8.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -370,6 +371,8 @@ function renderStatus() {
   }
   const status = $('#status');
   status.textContent = '';
+  // Shown here rather than in the banner so the tiles don't move mid-show.
+  if (state.uploadMsg) { status.append(state.uploadMsg); return; }
   if (!tiles.length) return;
   if (errors) status.append(el('span', { class: 'warn' }, `${errors} failed · `));
   status.append(ready === tiles.length ? `All ${ready} ready` : `Loading ${ready}/${tiles.length}`);
@@ -695,12 +698,16 @@ async function moveTile(id, delta) {
   openTileEditor(id);
 }
 
-async function addFiles(files, replaceTileId = null) {
+// quiet: report a failure by throwing instead of an alert (used for files
+// sent from a remote, so nothing pops up over the show on this iPad).
+async function addFiles(files, replaceTileId = null, { quiet = false } = {}) {
   if (!files.length) return;
   const startLen = state.show.tiles.length;
   const wasAtEnd = !replaceTileId && nextIndex() >= startLen;
-  state.bannerMsg = `Saving ${files.length} file${files.length > 1 ? 's' : ''} to the iPad…`;
-  renderBanner();
+  if (!quiet) {
+    state.bannerMsg = `Saving ${files.length} file${files.length > 1 ? 's' : ''} to the iPad…`;
+    renderBanner();
+  }
   try {
     for (const f of files) {
       const id = uid();
@@ -719,6 +726,11 @@ async function addFiles(files, replaceTileId = null) {
     // GO was past the last cue: point it at the first cue just added.
     if (wasAtEnd) { state.nextId = null; setNextIndex(startLen); }
   } catch (err) {
+    if (quiet) {
+      state.bannerMsg = null;
+      renderAll();
+      throw err;
+    }
     alert('Could not save audio: ' + (err.message || err));
   }
   state.bannerMsg = null;
@@ -961,6 +973,13 @@ async function init() {
     seekBy: (d) => { seekBy(d); kick(); },
     seekTo: (p) => { seekTo(p); kick(); },
     setFadeMode,
+    upload: createReceiver({
+      save: (file) => addFiles([file], null, { quiet: true }),
+      onActivity: (a) => {
+        state.uploadMsg = a ? `Receiving “${a.name}” ${Math.min(99, Math.round((a.got / Math.max(1, a.size)) * 100))}%` : null;
+        renderStatus();
+      },
+    }),
     snapshot, bus, el, openSheet,
     closeSheet: () => { if (sheet().open) sheet().close(); },
     onCount: (n, away = 0) => { $('#remoteBtn').textContent = (n ? `Remote · ${n}` : 'Remote') + (away ? ` · ${away} away` : ''); },

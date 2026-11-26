@@ -53,6 +53,7 @@ function addLink(link) {
   links.add(link);
   link.addEventListener('message', (e) => {
     const m = e.detail;
+    if (m.t && m.t.startsWith('up') && api.upload) { api.upload(link, m); return; }
     if (m.t === 'toggle') api.toggle(m.id);
     else if (m.t === 'stopAll') api.stopAll();
     else if (m.t === 'fadeAll') api.fadeAll();

@@ -107,6 +107,22 @@ class Link extends EventTarget {
     }
     return false;
   }
+  // Bytes queued on the channel but not sent yet.
+  get buffered() {
+    return this.channel ? this.channel.bufferedAmount : 0;
+  }
+  // Resolves once the send queue is below `low` bytes (for large transfers).
+  drain(low = 256 * 1024) {
+    const ch = this.channel;
+    if (!ch || ch.bufferedAmount <= low) return Promise.resolve();
+    return new Promise((resolve) => {
+      const done = () => { clearInterval(t); ch.removeEventListener('bufferedamountlow', done); resolve(); };
+      ch.bufferedAmountLowThreshold = low;
+      ch.addEventListener('bufferedamountlow', done);
+      // Also poll, in case the event is missed or the channel closes.
+      const t = setInterval(() => { if (ch.readyState !== 'open' || ch.bufferedAmount <= low) done(); }, 100);
+    });
+  }
   close() {
     try { this.channel && this.channel.close(); } catch {}
     try { this.pc.close(); } catch {}
