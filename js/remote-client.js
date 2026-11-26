@@ -2,6 +2,10 @@
 // sends taps to it. It plays no audio itself.
 import { createRemoteAnswer, remoteIdentity, standbyAnswer, reconnectToStandby, qrSvg, PAIR_PREFIX } from './pairing.js';
 import { createVolumeRail } from './volume.js';
+import { createTransport } from './transport.js';
+import { sendFiles, isAudio, MAX_FILE } from './upload.js';
+
+let transport = null;
 import { renderPauseBtn, squareGrid } from './layout.js';
 
 let volumeRail = null;
@@ -46,10 +50,11 @@ function setStatus(text, warn = false) {
   s.append(span);
 }
 
-function banner(text) {
+function banner(text, info = false) {
   const b = $('#banner');
   b.hidden = !text;
   b.textContent = text || '';
+  b.classList.toggle('info', !!text && info);
 }
 
 // While pairing or waiting there are no tiles yet, so the code (or message)
@@ -119,6 +124,16 @@ function render() {
 function tick() {
   if (!snap) return;
   const elapsed = (performance.now() - snapAt) / 1000;
+  if (transport) {
+    const f = snap.focus;
+    let ff = null;
+    if (f) {
+      let pos = f.pos + (f.paused ? 0 : elapsed);
+      if (f.loop && f.dur) pos %= f.dur;
+      ff = { ...f, pos: Math.min(pos, f.dur || pos) };
+    }
+    transport.update(ff, snap);
+  }
   const parts = [];
   for (const t of snap.tiles) {
     const node = document.querySelector(`.tile[data-id="${t.id}"]`);
@@ -187,6 +202,56 @@ function sendCmd(obj, node) {
   }
 }
 
+// ---------------------------------------------------------------- adding tracks
+
+const replyWaiters = new Map(); // upload id -> resolve
+let sending = false;
+let uploadNote = null; // banner text while sending, or a short result after
+
+function setUploadNote(text, ms = 0, info = true) {
+  uploadNote = text;
+  banner(text, info);
+  if (ms) setTimeout(() => { if (uploadNote === text) { uploadNote = null; banner(''); } }, ms);
+}
+
+function waitReply(id) {
+  return new Promise((resolve) => {
+    replyWaiters.set(id, resolve);
+    setTimeout(() => {
+      if (replyWaiters.delete(id)) resolve({ ok: false, msg: 'The main iPad didn\'t answer. Check it, then try again.' });
+    }, 90000);
+  });
+}
+
+async function uploadFiles(files) {
+  if (sending || !files.length) return;
+  const skipped = files.filter((f) => !isAudio(f.name, f.type) || f.size > MAX_FILE);
+  files = files.filter((f) => !skipped.includes(f));
+  if (!files.length) { setUploadNote('Those files aren\'t audio files Cue Pad can use.', 5000, false); return; }
+  sending = true;
+  $('#remoteAddBtn').disabled = true;
+  let added = 0;
+  const problems = [];
+  try {
+    const mb = (n) => (n / 1e6).toFixed(1);
+    const results = await sendFiles(() => link, files, {
+      waitReply,
+      onProgress: ({ index, count, name, sent, size }) => {
+        setUploadNote(`Sending ${count > 1 ? `${index + 1} of ${count}: ` : ''}${name} · ${mb(sent)} of ${mb(size)} MB. Keep this screen on.`);
+      },
+    });
+    for (const r of results) { if (r.ok) added++; else problems.push(r.msg); }
+  } catch (err) {
+    problems.push((err && err.message) || String(err));
+  }
+  sending = false;
+  $('#remoteAddBtn').disabled = false;
+  const ok = added ? `Added ${added} track${added > 1 ? 's' : ''} to the main iPad.` : '';
+  const bad = problems.length ? ` ${problems[0]}${problems.length > 1 ? ` (and ${problems.length - 1} more)` : ''}` : '';
+  const skip = skipped.length ? ` Skipped ${skipped.length} file${skipped.length > 1 ? 's' : ''} that aren't audio.` : '';
+  setUploadNote((ok + bad + skip).trim(), problems.length ? 9000 : 4000, !problems.length && !skipped.length);
+}
+
 // ---------------------------------------------------------------- link handling
 
 function useLink(l) {
@@ -197,13 +262,19 @@ function useLink(l) {
     if (l !== link) return;
     const m = e.detail;
     lastMsgAt = performance.now();
+    if (m.t === 'upDone') {
+      const w = replyWaiters.get(m.id);
+      if (w) { replyWaiters.delete(m.id); w(m); }
+      return;
+    }
     if (m.t === 'state') {
       snap = m;
       snapAt = performance.now();
       if (volumeRail && typeof m.vol === 'number') volumeRail.set(m.vol);
       render();
       renderPauseBtn($('#pauseAll'), m.pause || 'idle');
-      if (connected) { setStatus('Connected'); banner(''); }
+      if (connected) { setStatus('Connected'); if (!uploadNote) banner(''); }
+      $('#remoteAddBtn').hidden = false;
     } else if (m.t === 'standby') {
       prepareStandby(l, m.sdp);
     } else if (m.t === 'armed' && pairing) {
@@ -324,6 +395,7 @@ export async function startRemote() {
   document.body.classList.add('remote-mode');
   $('#startOverlay').hidden = true;
   $('#editBtn').hidden = true;
+  $('#settingsBtn').hidden = true;
   $('#remoteBtn').hidden = true;
   $('#showBtn').disabled = true;
   $('.app-name').textContent = 'Cue Pad Remote';
@@ -344,7 +416,7 @@ export async function startRemote() {
   setupControls();
   requestAnimationFrame(frame);
   // Used by automated tests.
-  window.cuepadRemote = { get link() { return link; }, get pairing() { return pairing; }, get identity() { return identity; }, reconnect: () => { attempt = 0; return reconnect(); } };
+  window.cuepadRemote = { uploadFiles, get sending() { return sending; }, get link() { return link; }, get pairing() { return pairing; }, get identity() { return identity; }, reconnect: () => { attempt = 0; return reconnect(); } };
 
   showMessage('Getting ready…', 'Starting the remote.');
   try { identity = await remoteIdentity(); } catch { identity = null; }
@@ -383,11 +455,20 @@ function setupControls() {
   grid.addEventListener('pointercancel', () => { down = null; });
   grid.addEventListener('contextmenu', (e) => e.preventDefault());
   $('#stopAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'stopAll' }); });
-  $('#fadeAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'fadeAll' }); });
   $('#pauseAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'pauseAll' }); });
   $('#goBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'go' }, e.currentTarget); });
   $('#prevCue').addEventListener('click', () => sendCmd({ t: 'step', delta: -1 }));
   $('#skipCue').addEventListener('click', () => sendCmd({ t: 'step', delta: 1 }));
   volumeRail = createVolumeRail($('#volume'), { value: 1, onChange: (v) => sendCmd({ t: 'volume', v }) });
+  $('#remoteAddBtn').addEventListener('click', () => { if (!sending) $('#filePicker').click(); });
+  $('#filePicker').addEventListener('change', (e) => { const files = [...e.target.files]; e.target.value = ''; uploadFiles(files); });
+  transport = createTransport($('#transport'), {
+    onSeekBy: (delta) => sendCmd({ t: 'seek', delta }),
+    onSeekTo: (pos) => sendCmd({ t: 'seekTo', pos }),
+    onFadeToggle: (on) => sendCmd({ t: 'fadeMode', on }),
+    onFromStart: () => sendCmd({ t: 'fromStart' }),
+    onFadeIn: () => sendCmd({ t: 'fadeIn' }),
+    onFadeOut: () => sendCmd({ t: 'fadeAll' }),
+  });
   window.addEventListener('resize', () => snap && renderedKey && layout(snap.tiles.length));
 }

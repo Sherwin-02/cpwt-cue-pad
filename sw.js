@@ -1,7 +1,7 @@
 // Offline support: the whole app is cached on first visit and served from the
 // cache from then on, so Cue Pad works with no internet. Bump VERSION whenever
 // app files change so devices pick up the update.
-const VERSION = 'cuepad-v1.5.0';
+const VERSION = 'cuepad-v1.8.0';
 const FILES = [
   './',
   './index.html',
@@ -15,6 +15,9 @@ const FILES = [
   './vendor/jsQR.js',
   './js/volume.js',
   './js/layout.js',
+  './js/transport.js',
+  './js/icons.js',
+  './js/upload.js',
   './assets/logo.svg',
   './js/engine.js',
   './js/db.js',

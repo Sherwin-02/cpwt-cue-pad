@@ -150,7 +150,8 @@ export class Engine extends EventTarget {
   }
 
   // Returns true if playback started.
-  play(tile, { otherFade = null } = {}) {
+  // fadeIn (seconds) overrides the tile's own fade-in; noFade starts at full level.
+  play(tile, { noFade = false, fadeIn: fadeInOverride = null } = {}) {
     const prep = this.preps.get(tile.id);
     if (!this.ctx || !prep || prep.status !== 'ready') return false;
     if (this.players.has(tile.id)) this.stop(tile.id, 0.02);
@@ -161,7 +162,7 @@ export class Engine extends EventTarget {
     const vol = tile.volume ?? 1;
     const gain = ctx.createGain();
     gain.connect(this.master);
-    const fadeIn = Math.max(0, tile.fadeIn || 0);
+    const fadeIn = fadeInOverride != null ? Math.max(0, fadeInOverride) : (noFade ? 0 : Math.max(0, tile.fadeIn || 0));
     if (fadeIn > 0) {
       gain.gain.setValueAtTime(0, t0);
       gain.gain.linearRampToValueAtTime(vol, t0 + fadeIn);
@@ -288,37 +289,77 @@ export class Engine extends EventTarget {
     return true;
   }
 
-  resume(tileId) {
+  resume(tileId, rampIn = 0.04) {
     const pl = this.players.get(tileId);
     if (!pl || pl.stopping || !pl.paused) return false;
+    pl.paused = false;
+    this.startFrom(pl, pl.pausedPos, Math.max(0.02, rampIn));
+    this.emit('playback', { tileId, state: 'playing' });
+    return true;
+  }
+
+  // Jump to `pos` seconds into the cue (playing or paused).
+  seek(tileId, pos) {
+    const pl = this.players.get(tileId);
+    if (!pl || pl.stopping) return false;
+    let max = Math.max(0, pl.playDuration - 0.1);
+    if (pl.tailState === 'error' && !pl.full) max = Math.min(max, pl.prep.headFrames / pl.prep.sampleRate - 0.1);
+    pos = Math.max(0, Math.min(max, pos));
+    if (pl.paused) pl.pausedPos = pos;
+    else this.startFrom(pl, pos, 0.02);
+    this.emit('playback', { tileId, state: pl.paused ? 'paused' : 'playing' });
+    return true;
+  }
+
+  // The cue the transport controls act on: the most recently started one
+  // that is still playing or paused.
+  focusId() {
+    let id = null;
+    for (const p of this.players.values()) if (!p.stopping) id = p.tileId;
+    return id;
+  }
+
+  // (Re)start a player's audio from `pos` seconds into the cue.
+  startFrom(pl, pos, rampIn = 0.02) {
     const ctx = this.ctx;
     const now = ctx.currentTime;
     const { prep } = pl;
-    const pos = pl.pausedPos;
-    pl.t0 = now - pos;
-    pl.paused = false;
     const g = pl.gain.gain;
     g.cancelScheduledValues(now);
-    g.setValueAtTime(0, now);
-    g.linearRampToValueAtTime(pl.vol, now + 0.04);
-    const src = ctx.createBufferSource();
-    src.connect(pl.gain);
+    g.setValueAtTime(g.value, now);
+    g.linearRampToValueAtTime(0, now + 0.01);
+    for (const s of pl.sources) {
+      s.onended = null;
+      try { s.stop(now + 0.012); } catch {}
+    }
+    pl.sources = [];
+    const t = now + 0.012;
+    pl.t0 = t - pos;
+    g.setValueAtTime(0, t);
+    g.linearRampToValueAtTime(pl.vol, t + rampIn);
+    const headLen = prep.headFrames / prep.sampleRate;
+    let src = null;
     if (pl.full) {
       const startSec = prep.startFrame / pl.full.sampleRate;
+      src = ctx.createBufferSource();
       src.buffer = pl.full;
       if (pl.loop) { src.loop = true; src.loopStart = startSec; src.loopEnd = pl.full.duration; }
-      src.start(now, startSec + pos);
+      src.connect(pl.gain);
+      src.start(t, startSec + pos);
+      if (!pl.loop) src.onended = pl.finalize;
       pl.tailState = 'scheduled';
-    } else {
+    } else if (!prep.needsTail || pos < headLen - 0.05) {
+      src = ctx.createBufferSource();
       src.buffer = prep.head;
       if (pl.loop && !prep.needsTail) src.loop = true;
-      src.start(now, Math.min(pos, prep.head.duration));
-      // A tail decode still in flight will schedule itself from the new t0.
+      src.connect(pl.gain);
+      src.start(t, Math.min(pos, Math.max(0, prep.head.duration - 0.01)));
+      if (!pl.loop && (!prep.needsTail || pl.tailState === 'error')) src.onended = pl.finalize;
+      // A tail decode still in flight schedules itself from the new t0.
     }
-    if (!pl.loop && (pl.full || !prep.needsTail)) src.onended = pl.finalize;
-    pl.sources = [src];
-    this.emit('playback', { tileId, state: 'playing' });
-    return true;
+    // Otherwise the jump is past the in-memory head and the full track is
+    // still decoding: it starts at the right place the moment it's ready.
+    if (src) pl.sources = [src];
   }
 
   stop(tileId, fadeSeconds = 0) {

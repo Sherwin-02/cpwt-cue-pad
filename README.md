@@ -20,12 +20,17 @@ On the day:
 
 | Action | What happens |
 | --- | --- |
-| Tap a tile | Plays it immediately. Other cues fade out unless the tile is set to **Play over other cues** |
-| Tap a playing tile | Fades it out using its fade-out time |
+| Tap a tile | Plays it immediately. Whatever was playing stops instantly, unless the tile is set to **Play over other cues**. Turn the **Fade** switch on (bottom bar) to fade between cues instead |
+| Tap a playing tile | Stops it immediately (fades out with its fade-out time when **Fade** is on) |
 | Volume rail (right edge) | Master volume for everything. Drag the handle up or down. A tap alone won't change it, so a brush can't jump the level mid-show. It works the same on the remote and stays in sync on both |
-| Pause / Resume | Pauses everything playing and keeps its place. Tap again (or tap the paused tile) to carry on from the same spot. Starting another cue clears paused ones |
-| Fade all | Fades everything out |
-| Stop all | Stops everything immediately |
+| ⏸ Pause / ▶ Resume | Pauses everything playing and keeps its place. Tap again (or tap the paused tile) to carry on from the same spot. Starting another cue clears paused ones |
+| Position slider | Shows and moves the place in the current cue (the one most recently started). All the buttons sit under it |
+| ⏮ From start | Plays the current cue again from its start point |
+| ⟲10 / ⟳10 | Jump back or forward 10 seconds in the current cue |
+| ◢ Fade in | Starts the Next cue fading in (whatever was playing fades out over the same time). On a paused cue, it carries on fading in |
+| ◣ Fade out | Fades everything playing out, then stops |
+| ⏹ Stop all | Stops everything immediately |
+| ⚙︎ Settings | Fade in / Fade out time (default 5 seconds) |
 | Edit | Add, rename, recolour, reorder or delete cues and change their settings. Taps don't play in Edit mode (use Preview) |
 | Show name | Switch shows, create, rename, duplicate, delete, export or import a backup |
 
@@ -39,7 +44,7 @@ The **Next** box beside **GO** shows the cue that GO will play, and that tile ha
 - After the last cue, Next says **End of show**. **Shows → Start again from cue 1** resets it, and **Edit → (a cue) → Make this the next cue for GO** jumps to any cue.
 - Next is remembered per show, even if the app is closed.
 - A remote gets the same GO, ◀ and ▶ buttons.
-- A Bluetooth keyboard or page-turner pedal works too: **Space, Enter, Page Down, → or ↓** is GO, **Page Up, ← or ↑** moves Next back, and **Esc** fades all.
+- A Bluetooth keyboard or page-turner pedal works too: **Space, Enter, Page Down, → or ↓** is GO, **Page Up, ← or ↑** moves Next back, and **Esc** fades out.
 
 Per-cue settings: name, colour, volume (0 to 150%), start point, fade in, fade out, loop, and play over other cues.
 
@@ -59,6 +64,8 @@ There's no idle timeout: while both screens are on and on the same wifi, the lin
 The main iPad holds the pairing for as long as Cue Pad stays open on it. If Cue Pad is closed or reloaded on the main iPad, each remote has to scan once more (the remote says so after a few tries). **Remote → Disconnect and forget all remotes** ends every pairing.
 
 You can connect several remotes. Phones work upright or sideways.
+
+**Adding tracks from a remote:** tap **+ Add tracks** (**+ Tracks** on a phone) and pick audio files from the phone's Files app. They're sent straight to the main iPad over the same wifi link, saved there, and added as new cues at the end of the show. The remote shows progress; keep its screen on until it says **Added**. The main iPad shows a small progress note at the top and nothing pops up over the show. Files that aren't audio are refused.
 
 Some church or guest wifi networks stop devices from talking to each other. If pairing never connects, put both devices on a phone hotspot or a small travel router.
 
@@ -84,6 +91,7 @@ Plain HTML, CSS and JavaScript with no build step. Any static host works. It is 
 - `js/backup.js`: `.cuepad` backup files
 - `js/pairing.js`: direct device-to-device link (WebRTC data channel), QR helpers, and reconnecting without codes. It's the only file that knows about the transport. While a remote is connected, the main iPad keeps a standby connection waiting for it. The remote answers that standby with a fixed identity (a saved certificate and fixed ICE credentials), so after a drop it can rebuild the same answer and connect again with nothing to scan
 - `js/remote-host.js` / `js/remote-client.js`: remote on the main iPad / on the remote device
+- `js/upload.js`: sends audio files from a remote to the main iPad in 16 KB pieces over the same link, with flow control, and checks every byte arrived before saving
 - `sw.js`: offline cache. **Bump `VERSION` whenever app files change**, so devices get the update (Shows → Update).
 
 Smoke test (needs Playwright and ffmpeg):

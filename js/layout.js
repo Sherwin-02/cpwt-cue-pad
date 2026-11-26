@@ -1,3 +1,5 @@
+import { ICONS } from './icons.js';
+
 // Shared layout helpers: square tile grid, the Pause button, and the
 // landscape guard for the main iPad.
 
@@ -42,7 +44,8 @@ export function squareGrid(grid, count, { minSide = 96, maxSide = 200 } = {}) {
 export function renderPauseBtn(btn, state) {
   if (!btn || btn.dataset.state === state) return;
   btn.dataset.state = state;
-  btn.textContent = state === 'resume' ? '▶ Resume' : '❚❚ Pause';
+  btn.innerHTML = state === 'resume' ? ICONS.play : ICONS.pause;
+  btn.title = state === 'resume' ? 'Resume' : 'Pause';
   btn.disabled = state === 'idle';
   btn.classList.toggle('resume', state === 'resume');
   btn.setAttribute('aria-label', state === 'resume' ? 'Resume paused cues' : 'Pause what is playing');
