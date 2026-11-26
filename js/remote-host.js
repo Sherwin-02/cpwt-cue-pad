@@ -56,6 +56,8 @@ function addLink(link) {
     if (m.t === 'toggle') api.toggle(m.id);
     else if (m.t === 'stopAll') api.stopAll();
     else if (m.t === 'fadeAll') api.fadeAll();
+    else if (m.t === 'fadeIn') api.fadeIn();
+    else if (m.t === 'fromStart') api.fromStart();
     else if (m.t === 'pauseAll') api.pauseAll();
     else if (m.t === 'go') api.go();
     else if (m.t === 'step') api.stepNext(m.delta < 0 ? -1 : 1);

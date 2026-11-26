@@ -132,7 +132,7 @@ check(await host.evaluate(() => window.cuepad.state.fadeMode === true), 'Fade sw
 await remote.waitForFunction(() => document.querySelector('.tp-fade').textContent === 'Fade: On', null, { timeout: 3000 }).catch(() => {});
 check(await remote.textContent('.tp-fade') === 'Fade: On', 'remote Fade switch shows the main iPad\'s setting');
 await host.evaluate(() => window.cuepad.setFadeMode(false));
-await remote.waitForFunction(() => document.querySelector('#pauseAll').textContent.includes('Resume'), null, { timeout: 3000 });
+await remote.waitForFunction(() => document.querySelector('#pauseAll').dataset.state === 'resume', null, { timeout: 3000 });
 check(true, 'remote Pause button turns into Resume');
 await remote.locator('#pauseAll').dispatchEvent('pointerdown');
 await host.waitForFunction((id) => window.cuepad.engine.isPlaying(id), tileId, { timeout: 3000 });

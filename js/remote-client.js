@@ -130,7 +130,7 @@ function tick() {
       if (f.loop && f.dur) pos %= f.dur;
       ff = { ...f, pos: Math.min(pos, f.dur || pos) };
     }
-    transport.update(ff, snap.fade);
+    transport.update(ff, snap);
   }
   const parts = [];
   for (const t of snap.tiles) {
@@ -337,6 +337,7 @@ export async function startRemote() {
   document.body.classList.add('remote-mode');
   $('#startOverlay').hidden = true;
   $('#editBtn').hidden = true;
+  $('#settingsBtn').hidden = true;
   $('#remoteBtn').hidden = true;
   $('#showBtn').disabled = true;
   $('.app-name').textContent = 'Cue Pad Remote';
@@ -396,7 +397,6 @@ function setupControls() {
   grid.addEventListener('pointercancel', () => { down = null; });
   grid.addEventListener('contextmenu', (e) => e.preventDefault());
   $('#stopAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'stopAll' }); });
-  $('#fadeAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'fadeAll' }); });
   $('#pauseAll').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'pauseAll' }); });
   $('#goBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); sendCmd({ t: 'go' }, e.currentTarget); });
   $('#prevCue').addEventListener('click', () => sendCmd({ t: 'step', delta: -1 }));
@@ -406,6 +406,9 @@ function setupControls() {
     onSeekBy: (delta) => sendCmd({ t: 'seek', delta }),
     onSeekTo: (pos) => sendCmd({ t: 'seekTo', pos }),
     onFadeToggle: (on) => sendCmd({ t: 'fadeMode', on }),
+    onFromStart: () => sendCmd({ t: 'fromStart' }),
+    onFadeIn: () => sendCmd({ t: 'fadeIn' }),
+    onFadeOut: () => sendCmd({ t: 'fadeAll' }),
   });
   window.addEventListener('resize', () => snap && renderedKey && layout(snap.tiles.length));
 }

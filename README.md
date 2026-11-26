@@ -20,13 +20,17 @@ On the day:
 
 | Action | What happens |
 | --- | --- |
-| Tap a tile | Plays it immediately. Whatever was playing stops instantly, unless the tile is set to **Play over other cues**. Turn **Fade** on (strip above the buttons) to fade between cues instead |
+| Tap a tile | Plays it immediately. Whatever was playing stops instantly, unless the tile is set to **Play over other cues**. Turn the **Fade** switch on (bottom bar) to fade between cues instead |
 | Tap a playing tile | Stops it immediately (fades out with its fade-out time when **Fade** is on) |
 | Volume rail (right edge) | Master volume for everything. Drag the handle up or down. A tap alone won't change it, so a brush can't jump the level mid-show. It works the same on the remote and stays in sync on both |
-| Pause / Resume | Pauses everything playing and keeps its place. Tap again (or tap the paused tile) to carry on from the same spot. Starting another cue clears paused ones |
-| −10s / +10s, position slider | Jump around in the current cue (the one most recently started) |
-| Fade all | Fades everything out |
-| Stop all | Stops everything immediately |
+| ⏸ Pause / ▶ Resume | Pauses everything playing and keeps its place. Tap again (or tap the paused tile) to carry on from the same spot. Starting another cue clears paused ones |
+| Position slider | Shows and moves the place in the current cue (the one most recently started). All the buttons sit under it |
+| ⏮ From start | Plays the current cue again from its start point |
+| ⟲10 / ⟳10 | Jump back or forward 10 seconds in the current cue |
+| ◢ Fade in | Starts the Next cue fading in (whatever was playing fades out over the same time). On a paused cue, it carries on fading in |
+| ◣ Fade out | Fades everything playing out, then stops |
+| ⏹ Stop all | Stops everything immediately |
+| ⚙︎ Settings | Fade in / Fade out time (default 5 seconds) |
 | Edit | Add, rename, recolour, reorder or delete cues and change their settings. Taps don't play in Edit mode (use Preview) |
 | Show name | Switch shows, create, rename, duplicate, delete, export or import a backup |
 
@@ -40,7 +44,7 @@ The **Next** box beside **GO** shows the cue that GO will play, and that tile ha
 - After the last cue, Next says **End of show**. **Shows → Start again from cue 1** resets it, and **Edit → (a cue) → Make this the next cue for GO** jumps to any cue.
 - Next is remembered per show, even if the app is closed.
 - A remote gets the same GO, ◀ and ▶ buttons.
-- A Bluetooth keyboard or page-turner pedal works too: **Space, Enter, Page Down, → or ↓** is GO, **Page Up, ← or ↑** moves Next back, and **Esc** fades all.
+- A Bluetooth keyboard or page-turner pedal works too: **Space, Enter, Page Down, → or ↓** is GO, **Page Up, ← or ↑** moves Next back, and **Esc** fades out.
 
 Per-cue settings: name, colour, volume (0 to 150%), start point, fade in, fade out, loop, and play over other cues.
 

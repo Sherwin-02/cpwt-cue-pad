@@ -99,7 +99,7 @@ await page.waitForTimeout(1500);
 await page.locator('#pauseAll').dispatchEvent('pointerdown');
 const p1 = await page.evaluate((id) => window.cuepad.engine.position(id), ids[1]);
 check(p1 && p1.paused && await page.evaluate((id) => window.cuepad.engine.isPaused(id), ids[1]), `Pause pauses the cue at ${p1 && p1.pos.toFixed(2)}s`);
-check((await page.textContent('#pauseAll')).includes('Resume'), 'Pause button turns into Resume');
+check(await page.getAttribute('#pauseAll', 'data-state') === 'resume' && await page.getAttribute('#pauseAll', 'title') === 'Resume', 'Pause button turns into Resume (play symbol)');
 await page.waitForTimeout(1000);
 const p2 = await page.evaluate((id) => window.cuepad.engine.position(id), ids[1]);
 check(Math.abs(p2.pos - p1.pos) < 0.001, 'position stays put while paused');
@@ -172,6 +172,53 @@ check(seekOk < 0.05, 'seeking lands on the right audio');
 await page.locator('#stopAll').dispatchEvent('pointerdown');
 await page.waitForTimeout(200);
 check((await page.textContent('.tp-name')) === 'Nothing playing' && await page.$eval('.tp-slider', (n) => n.disabled), 'transport goes idle when nothing plays');
+
+// Controls sit under the slider, with symbols
+const box = (sel) => page.$eval(sel, (n) => { const r = n.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
+const sl = await box('.tp-slider');
+let below = true;
+for (const sel of ['#goBtn', '#fromStart', '#back10', '#pauseAll', '#fwd10', '#fadeInBtn', '#fadeOutBtn', '#fadeMode', '#stopAll']) if ((await box(sel)).top < sl.bottom) below = false;
+check(below, 'all control buttons are below the position slider');
+check(await page.$$eval('#fromStart svg, #back10 svg, #fwd10 svg, #pauseAll svg, #stopAll svg', (n) => n.length) === 5, 'From start, ±10, Pause and Stop are symbols');
+const overflow = await page.evaluate(() => document.documentElement.scrollWidth > innerWidth || [...document.querySelectorAll('.bottombar > *')].some((n) => n.getBoundingClientRect().right > innerWidth + 1));
+check(!overflow, 'bottom bar fits the iPad width');
+
+// From start, Fade in, Fade out (fade time from Settings)
+const fstate = (id) => page.evaluate((i) => { const e = window.cuepad.engine; const pl = e.players.get(i); return pl ? { g: pl.gain.gain.value, stopping: pl.stopping, pos: e.position(i).pos } : null; }, id);
+await page.locator(`.tile[data-id="${ids[1]}"]`).dispatchEvent('pointerdown');
+await page.waitForTimeout(1500);
+await page.locator('#fromStart').dispatchEvent('pointerdown');
+await page.waitForTimeout(100);
+check((await fstate(ids[1])).pos < 0.4, 'From start plays the current cue from the beginning');
+check(await page.textContent('#fadeOutBtn') === 'Out 5s' && await page.textContent('#fadeInBtn') === 'In 5s', 'fade buttons show the 5 s default');
+await page.locator('#fadeOutBtn').dispatchEvent('pointerdown');
+await page.waitForTimeout(2500);
+const fo = await fstate(ids[1]);
+check(fo && fo.stopping && fo.g > 0.3 && fo.g < 0.7, `Fade out fades over 5 s (level ${fo && fo.g.toFixed(2)} at 2.5 s)`);
+await page.waitForTimeout(2800);
+check(!(await has(ids[1])), 'Fade out ends the cue');
+await page.evaluate(() => window.cuepad.setFadeTime(2));
+check(await page.textContent('#fadeInBtn') === 'In 2s', 'fade time changes from Settings');
+await page.evaluate((id) => { const c = window.cuepad; c.state.nextId = id; }, ids[2]);
+await page.locator('#fadeInBtn').dispatchEvent('pointerdown');
+await page.waitForTimeout(1000);
+const fi = await fstate(ids[2]);
+check(fi && !fi.stopping && fi.g > 0.3 && fi.g < 0.7, `Fade in starts the Next cue fading in (level ${fi && fi.g.toFixed(2)} at 1 s of 2 s)`);
+await page.waitForTimeout(1300);
+check((await fstate(ids[2])).g > 0.95, 'Fade in reaches full level');
+await page.locator('#pauseAll').dispatchEvent('pointerdown');
+await page.waitForTimeout(200);
+await page.locator('#fadeInBtn').dispatchEvent('pointerdown');
+await page.waitForTimeout(1000);
+const fr = await fstate(ids[2]);
+check(await page.evaluate((i) => window.cuepad.engine.isPlaying(i), ids[2]) && fr.g > 0.3 && fr.g < 0.7, 'Fade in on a paused cue resumes it fading in');
+await page.evaluate(() => window.cuepad.setFadeTime(5));
+await page.locator('#stopAll').dispatchEvent('pointerdown');
+await page.waitForTimeout(200);
+await page.click('#settingsBtn');
+check(await page.isVisible('#sheet .num-input'), 'Settings has the fade time');
+await page.evaluate(() => document.querySelector('#sheet').close());
+await page.screenshot({ path: '/tmp/claude-0/ic/main.png' });
 
 // Square tiles and the landscape guard
 const dims = await page.$eval('.tile:not(.add)', (n) => { const r = n.getBoundingClientRect(); return [r.width, r.height]; });

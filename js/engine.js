@@ -150,7 +150,8 @@ export class Engine extends EventTarget {
   }
 
   // Returns true if playback started.
-  play(tile, { noFade = false } = {}) {
+  // fadeIn (seconds) overrides the tile's own fade-in; noFade starts at full level.
+  play(tile, { noFade = false, fadeIn: fadeInOverride = null } = {}) {
     const prep = this.preps.get(tile.id);
     if (!this.ctx || !prep || prep.status !== 'ready') return false;
     if (this.players.has(tile.id)) this.stop(tile.id, 0.02);
@@ -161,7 +162,7 @@ export class Engine extends EventTarget {
     const vol = tile.volume ?? 1;
     const gain = ctx.createGain();
     gain.connect(this.master);
-    const fadeIn = noFade ? 0 : Math.max(0, tile.fadeIn || 0);
+    const fadeIn = fadeInOverride != null ? Math.max(0, fadeInOverride) : (noFade ? 0 : Math.max(0, tile.fadeIn || 0));
     if (fadeIn > 0) {
       gain.gain.setValueAtTime(0, t0);
       gain.gain.linearRampToValueAtTime(vol, t0 + fadeIn);
@@ -288,11 +289,11 @@ export class Engine extends EventTarget {
     return true;
   }
 
-  resume(tileId) {
+  resume(tileId, rampIn = 0.04) {
     const pl = this.players.get(tileId);
     if (!pl || pl.stopping || !pl.paused) return false;
     pl.paused = false;
-    this.startFrom(pl, pl.pausedPos, 0.04);
+    this.startFrom(pl, pl.pausedPos, Math.max(0.02, rampIn));
     this.emit('playback', { tileId, state: 'playing' });
     return true;
   }
@@ -334,6 +335,7 @@ export class Engine extends EventTarget {
     pl.sources = [];
     const t = now + 0.012;
     pl.t0 = t - pos;
+    g.setValueAtTime(0, t);
     g.linearRampToValueAtTime(pl.vol, t + rampIn);
     const headLen = prep.headFrames / prep.sampleRate;
     let src = null;

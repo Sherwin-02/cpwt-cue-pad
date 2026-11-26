@@ -6,7 +6,7 @@ import { createVolumeRail, toGain } from './volume.js';
 import { createTransport } from './transport.js';
 import { renderPauseBtn, setupOrientationGuard, squareGrid } from './layout.js';
 
-export const APP_VERSION = '1.6.0';
+export const APP_VERSION = '1.7.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -64,6 +64,8 @@ const state = {
   fits: false,
   bannerMsg: null,
   nextId: null,
+  fadeMode: false,
+  fadeTime: 5, // seconds, for the Fade in / Fade out buttons
 };
 
 const engine = new Engine((trackId) => db.trackBytes(trackId));
@@ -82,15 +84,18 @@ async function saveShow() {
 
 // ---------------------------------------------------------------- commands (shared with remote)
 
-export function toggle(tileId) {
+// opts.fadeIn (seconds): start with a fade-in and fade the previous cue out
+// over the same time (the Fade in button). Otherwise the Fade switch decides.
+export function toggle(tileId, opts = {}) {
   const tile = tileById(tileId);
+  const xfade = opts.fadeIn > 0 ? opts.fadeIn : null;
   if (!tile) return;
   if (!engine.running) {
     showOverlay('Tap anywhere to turn audio back on');
     return;
   }
   if (engine.isPaused(tileId)) {
-    engine.resume(tileId);
+    engine.resume(tileId, xfade || 0.04);
     return;
   }
   if (engine.isPlaying(tileId)) {
@@ -105,11 +110,11 @@ export function toggle(tileId) {
     for (const id of engine.playingIds()) {
       const other = tileById(id);
       // Default: the previous cue cuts instantly. With Fade on, it fades out.
-      engine.stop(id, state.fadeMode && other ? Math.min(other.fadeOut ?? 2, 2) : 0);
+      engine.stop(id, xfade || (state.fadeMode && other ? Math.min(other.fadeOut ?? 2, 2) : 0));
     }
     for (const id of engine.pausedIds()) engine.stop(id, 0);
   }
-  engine.play(tile, { noFade: !state.fadeMode });
+  engine.play(tile, xfade ? { fadeIn: xfade } : { noFade: !state.fadeMode });
   // Starting a cue by hand moves GO along to the cue after it, so GO always
   // follows the operator. "Play over" stings are one-offs and leave it alone.
   if (!tile.layer) setNextIndex(state.show.tiles.indexOf(tile) + 1);
@@ -142,7 +147,7 @@ function setNextIndex(i) {
   notify();
 }
 
-export function go() {
+export function go(opts = {}) {
   const now = performance.now();
   if (now - lastGoAt < GO_GUARD_MS) return;
   lastGoAt = now;
@@ -159,7 +164,7 @@ export function go() {
     flashNext();
     return;
   }
-  if (!engine.isPlaying(tile.id)) toggle(tile.id);
+  if (!engine.isPlaying(tile.id)) toggle(tile.id, opts);
   setNextIndex(i + 1);
 }
 
@@ -208,12 +213,40 @@ export function stopAll() {
   engine.stopAll(0);
 }
 
+// Fade out (and Esc): everything playing fades out over the fade time from Settings.
 export function fadeAll() {
-  for (const id of engine.playingIds()) {
-    const t = tileById(id);
-    engine.stop(id, t ? Math.max(1, t.fadeOut ?? 2) : 2);
-  }
+  for (const id of engine.playingIds()) engine.stop(id, state.fadeTime);
   for (const id of engine.pausedIds()) engine.stop(id, 0);
+}
+
+// Fade in: a paused current cue carries on, fading in. Otherwise the Next cue
+// starts, fading in, while whatever was playing fades out over the same time.
+export function fadeIn() {
+  const id = engine.focusId();
+  if (id && engine.isPaused(id)) { engine.resume(id, state.fadeTime); return; }
+  go({ fadeIn: state.fadeTime });
+}
+
+// Play the current cue again from its start point.
+export function fromStart() {
+  const id = engine.focusId();
+  if (!id) return;
+  engine.seek(id, 0);
+  if (engine.isPaused(id)) engine.resume(id);
+}
+
+function canFadeIn() {
+  const id = engine.focusId();
+  if (id && engine.isPaused(id)) return true;
+  const n = nextInfo();
+  return !n.end && engine.prepStatus(n.id) === 'ready';
+}
+
+export function setFadeTime(secs) {
+  state.fadeTime = Math.max(0.5, Math.min(30, Number(secs) || 5));
+  db.setMeta('fadeTime', state.fadeTime).catch(() => {});
+  updateTiles();
+  notify();
 }
 
 // Pause everything that's playing; if nothing is playing, resume what was paused.
@@ -268,8 +301,12 @@ export function seekTo(pos) {
 export function setFadeMode(on) {
   state.fadeMode = !!on;
   db.setMeta('fadeMode', state.fadeMode).catch(() => {});
-  if (transport) transport.update(focusInfo(), state.fadeMode);
+  if (transport) transport.update(focusInfo(), transportOpts());
   notify();
+}
+
+function transportOpts() {
+  return { fade: !!state.fadeMode, fadeTime: state.fadeTime, canFadeIn: canFadeIn(), canFadeOut: engine.playingIds().length > 0 };
 }
 
 export function snapshot() {
@@ -278,6 +315,7 @@ export function snapshot() {
     vol: volume,
     pause: pauseState(),
     fade: !!state.fadeMode,
+    ...transportOpts(),
     focus: focusInfo(),
     showName: show ? show.name : '',
     tiles: show ? show.tiles.map((t, i) => {
@@ -425,7 +463,7 @@ function updateTiles() {
     if (info.textContent !== text) info.textContent = text;
   }
   renderPauseBtn($('#pauseAll'), pauseState());
-  if (transport) transport.update(focusInfo(), state.fadeMode);
+  if (transport) transport.update(focusInfo(), transportOpts());
   const now = $('#now');
   if (!nowParts.length) {
     if (now.textContent !== 'Nothing playing') now.textContent = 'Nothing playing';
@@ -791,6 +829,17 @@ function openShowsSheet() {
   openSheet('Shows', body);
 }
 
+function openSettingsSheet() {
+  const body = el('div', {});
+  body.append(
+    field('Fade in / Fade out time (seconds)',
+      numInput(state.fadeTime, { step: 0.5, min: 0.5, max: 30 }, (v) => setFadeTime(v)),
+      'Used by the Fade in and Fade out buttons and the Esc key. Default 5 s.'),
+    el('div', { class: 'divider' }),
+    el('div', { class: 'muted' }, `Cue Pad ${APP_VERSION}`));
+  openSheet('Settings', body);
+}
+
 function storageInfo() {
   const node = el('div', { class: 'muted' }, `Cue Pad ${APP_VERSION}`);
   db.estimate().then((est) => {
@@ -874,12 +923,16 @@ async function init() {
   engine.setMasterGain(toGain(volume));
   volumeRail = createVolumeRail($('#volume'), { value: volume, onChange: (v) => setVolume(v) });
   state.fadeMode = !!(await db.getMeta('fadeMode', false));
+  state.fadeTime = Number(await db.getMeta('fadeTime', 5)) || 5;
   transport = createTransport($('#transport'), {
     onSeekBy: (d) => { seekBy(d); updateTiles(); kick(); },
     onSeekTo: (p) => { seekTo(p); updateTiles(); kick(); },
     onFadeToggle: (on) => setFadeMode(on),
+    onFromStart: () => { fromStart(); updateTiles(); kick(); },
+    onFadeIn: () => { fadeIn(); updateTiles(); kick(); },
+    onFadeOut: () => { fadeAll(); updateTiles(); kick(); },
   });
-  transport.update(null, state.fadeMode);
+  transport.update(null, { fade: state.fadeMode, fadeTime: state.fadeTime });
 
   for (const info of await db.listTrackInfo()) state.tracks.set(info.id, info);
   state.shows = await db.getAll('shows');
@@ -900,6 +953,8 @@ async function init() {
     stopAll: () => { stopAll(); kick(); },
     pauseAll: () => { pauseAll(); kick(); },
     fadeAll: () => { fadeAll(); kick(); },
+    fadeIn: () => { fadeIn(); kick(); },
+    fromStart: () => { fromStart(); kick(); },
     go: () => { go(); kick(); },
     stepNext,
     setVolume: (v) => setVolume(v, true),
@@ -924,7 +979,7 @@ async function init() {
   });
   $('#showBtn').addEventListener('click', openShowsSheet);
   $('#stopAll').addEventListener('pointerdown', (e) => { e.preventDefault(); stopAll(); kick(); });
-  $('#fadeAll').addEventListener('pointerdown', (e) => { e.preventDefault(); fadeAll(); kick(); });
+  $('#settingsBtn').addEventListener('click', openSettingsSheet);
   $('#pauseAll').addEventListener('pointerdown', (e) => { e.preventDefault(); pauseAll(); updateTiles(); kick(); });
   setupOrientationGuard({ onStopAll: () => { stopAll(); kick(); } });
   $('#goBtn').addEventListener('pointerdown', (e) => { e.preventDefault(); go(); kick(); });
@@ -976,6 +1031,6 @@ function setupKeys() {
 }
 
 // Exposed for automated tests and the remote module.
-window.cuepad = { state, engine, setVolume, seekBy, seekTo, setFadeMode, getVolume: () => volume, toggle, stopAll, fadeAll, pauseAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount, pairedCount, disconnectAll };
+window.cuepad = { state, engine, setVolume, seekBy, seekTo, setFadeMode, setFadeTime, fadeIn, fromStart, getVolume: () => volume, toggle, stopAll, fadeAll, pauseAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount, pairedCount, disconnectAll };
 
 init();
