@@ -75,9 +75,15 @@ export function createTransport(root, { onSeekBy, onSeekTo, onFadeToggle, onFrom
 
   return {
     // f: { label, n, pos, dur, paused, loop } or null.
-    // o: { fade (switch on), fadeTime (s), canFadeIn, canFadeOut }
+    // o: { fade (switch on), fadeTime (s), fadeArmed, canFadeIn, canFadeOut }
     update(f, o = {}) {
       focus = f;
+      const armed = !!o.fadeArmed && !f;
+      if (fadeIn.getAttribute('aria-pressed') !== String(armed)) {
+        fadeIn.setAttribute('aria-pressed', String(armed));
+        fadeIn.classList.toggle('armed', armed);
+        fadeIn.setAttribute('aria-label', armed ? 'Fade in is armed. Press again to cancel' : `Fade in over ${fadeLabel(fadeSecs)} seconds`);
+      }
       const on = !!o.fade;
       if (fadeBtn.getAttribute('aria-pressed') !== String(on)) {
         fadeBtn.setAttribute('aria-pressed', String(on));
@@ -90,12 +96,15 @@ export function createTransport(root, { onSeekBy, onSeekTo, onFadeToggle, onFrom
       slider.disabled = !f;
       back.disabled = fwd.disabled = fromStart.disabled = !f;
       if (!f) {
-        if (name.textContent !== 'Nothing playing') name.textContent = 'Nothing playing';
+        const idle = armed ? `Next tile fades in over ${fadeLabel(fadeSecs)}s` : 'Nothing playing';
+        if (name.textContent !== idle) name.textContent = idle;
+        root.classList.toggle('armed', armed);
         posEl.textContent = '0:00';
         leftEl.textContent = '-0:00';
         slider.value = 0;
         return;
       }
+      root.classList.remove('armed');
       const label = `${f.n}. ${f.label}${f.paused ? ' (paused)' : ''}`;
       if (name.textContent !== label) name.textContent = label;
       if (String(slider.max) !== String(f.dur)) slider.max = String(Math.max(0.1, f.dur));
