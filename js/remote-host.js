@@ -148,6 +148,10 @@ export async function openPairingSheet() {
   const qrBox = el('div', { class: 'qr-box' }, el('div', { class: 'muted' }, 'Preparing…'));
   const video = el('video', { class: 'scan-video', playsinline: true, muted: true, autoplay: true });
   const step = el('div', { class: 'pair-step' });
+  const switchBtn = el('button', { class: 'btn', type: 'button', hidden: true }, 'Switch camera');
+  const pasteBox = el('textarea', { class: 'pair-paste', rows: 3, placeholder: 'Paste the code here (it starts with CPA1:)', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false' });
+  const pasteBtn = el('button', { class: 'btn primary', type: 'button' }, 'Connect');
+  const pasteMsg = el('div', { class: 'muted' }, '');
   const msg = el('div', { class: 'pair-msg', role: 'status' }, '');
   const body = el('div', { class: 'pair' },
     el('div', { class: 'pair-cols' },
@@ -157,14 +161,23 @@ export async function openPairingSheet() {
         qrBox),
       el('div', {},
         el('div', { class: 'pair-num' }, '2'),
-        el('p', {}, 'The remote then shows its own code. Hold it up to this iPad\'s front camera.'),
-        video, step)),
+        el('p', {}, 'The remote then shows its own code. Hold it up to this device\'s camera.'),
+        video, step,
+        el('div', { class: 'btn-row' }, switchBtn),
+        el('details', { class: 'pair-nocam' },
+          el('summary', {}, 'No camera? Paste the code instead'),
+          el('p', {}, 'On the remote, tap Send code instead and send it to this device (AirDrop, Messages, WhatsApp or email to yourself). Then paste it here.'),
+          pasteBox,
+          el('div', { class: 'btn-row' }, pasteBtn),
+          pasteMsg))),
     msg,
     el('p', { class: 'muted' }, 'Each remote only needs this once. If its wifi drops or its screen locks, it reconnects by itself as long as Cue Pad stays open on this iPad.'),
     el('div', { class: 'btn-row' },
       el('button', { class: 'btn', type: 'button', onclick: () => { disconnectAll(); msg.textContent = 'All remotes disconnected.'; } }, 'Disconnect and forget all remotes')));
 
   let stopScan = null;
+  let facing = 'user';
+  try { facing = localStorage.getItem('cuepad.scanFacing') || 'user'; } catch {}
   let pending = null;
   let done = false;
   api.openSheet('Connect a remote', body, {
@@ -190,14 +203,46 @@ export async function openPairingSheet() {
   // Used by automated tests (no camera there).
   if (window.cuepad) window.cuepad.pairWithCode = onCode;
 
+  switchBtn.addEventListener('click', async () => {
+    if (done) return;
+    facing = facing === 'user' ? 'environment' : 'user';
+    try { localStorage.setItem('cuepad.scanFacing', facing); } catch {}
+    if (stopScan) stopScan();
+    stopScan = null;
+    step.textContent = 'Switching camera…';
+    try {
+      stopScan = await startScanner(video, onCode, { facingMode: facing });
+      video.classList.toggle('rear', facing === 'environment');
+      step.textContent = `Looking for the remote's code (${facing === 'user' ? 'front' : 'back'} camera)…`;
+    } catch {
+      step.textContent = 'That camera isn\'t available.';
+    }
+  });
+
+  pasteBtn.addEventListener('click', async () => {
+    const text = pasteBox.value.replace(/\s+/g, '');
+    const at = text.indexOf(ANSWER_PREFIX);
+    if (at < 0) { pasteMsg.textContent = 'That isn\'t a remote code. It should start with CPA1:'; return; }
+    if (!pending) { pasteMsg.textContent = 'Still getting ready. Try again in a moment.'; return; }
+    pasteMsg.textContent = 'Connecting…';
+    const ok = await onCode(text.slice(at));
+    pasteMsg.textContent = ok ? 'Code accepted. Connecting…' : 'That code didn\'t work. Make sure it\'s from the remote that scanned this iPad\'s current code.';
+  });
+
   try {
     // Camera first: once camera access is granted, Safari shares real local
     // network addresses, which makes the direct link more reliable.
     step.textContent = 'Starting camera…';
     let cameraOk = true;
     try {
-      stopScan = await startScanner(video, onCode);
+      stopScan = await startScanner(video, onCode, { facingMode: facing });
+      video.classList.toggle('rear', facing === 'environment');
       step.textContent = 'Looking for the remote\'s code…';
+      // Offer a front/back switch when the device has more than one camera.
+      try {
+        const cams = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'videoinput');
+        switchBtn.hidden = cams.length < 2;
+      } catch {}
     } catch (err) {
       cameraOk = false;
       step.textContent = 'Camera unavailable. Allow camera access for Cue Pad in Settings, then try again.';

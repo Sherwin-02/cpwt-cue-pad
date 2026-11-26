@@ -517,3 +517,10 @@ body.remote-pairing .transport { display: none; }
 /* Remote: + Add tracks (shortened to "+ Tracks" on phones) */
 @media (max-width: 500px) { .wide-only { display: none; } #remoteAddBtn { padding-left: 10px; padding-right: 10px; } }
 body.remote-pairing #remoteAddBtn { display: none; }
+
+/* Pairing without a camera: paste / send the code as text */
+.pair-nocam { margin-top: 12px; }
+.pair-nocam summary { cursor: pointer; font-weight: 600; color: var(--apricot); }
+.pair-paste { width: 100%; margin-top: 8px; padding: 8px 10px; border-radius: 10px; border: 1px solid rgba(242, 183, 142, 0.5); background: var(--wine-deep); color: var(--cream); font: 12px/1.35 ui-monospace, Menlo, Consolas, monospace; word-break: break-all; -webkit-user-select: text; user-select: text; resize: vertical; }
+.pair-send { margin-top: 14px; }
+.scan-video.rear { transform: none; }
