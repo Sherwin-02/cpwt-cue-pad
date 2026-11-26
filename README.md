@@ -46,7 +46,13 @@ The **Next** box beside **GO** shows the cue that GO will play, and that tile ha
 - A remote gets the same GO, ◀ and ▶ buttons.
 - A Bluetooth keyboard or page-turner pedal works too: **Space, Enter, Page Down, → or ↓** is GO, **Page Up, ← or ↑** moves Next back, and **Esc** fades out.
 
-Per-cue settings: name, colour, volume (0 to 150%), start point, fade in, fade out, loop, and play over other cues.
+Per-cue settings: name, colour, volume (0 to 150%), trim (start and end points), fade in, fade out, loop, and play over other cues.
+
+## Trim and Join (Edit mode)
+
+**Trim.** Edit → tap a cue → **✂ Trim start / end**. Drag the green Start and End handles on the waveform, or use the −1 / −0.1 / +0.1 / +1 buttons for fine steps. **Zoom on start** and **Zoom on end** show 8 seconds around that point for precise dragging. Tap the waveform to listen from there, and while it plays use **Set start here** or **Set end here**. Tap **Done** to keep the trim. The cue then starts and stops at those points (loops loop between them). The audio file itself is never changed, so **Use the whole track** always brings it back. Trimmed tiles show ✂.
+
+**Join.** Edit → tap a cue → **⧉ Join with other cues…**. Add the cues in the order you want, reorder with ↑ ↓, choose **Straight on**, **With a gap** or **Crossfade** and the seconds, then **Join into a new cue**. Each part keeps its trim and volume. Cue Pad makes a new audio file (WAV, about 11 MB a minute) and adds it as a new cue after the first part. The original cues stay unless you tick **Take the original cues out of this show**, and even then their audio stays on the iPad. Backups include joined audio and trims.
 
 ## Remote (phone or second iPad)
 

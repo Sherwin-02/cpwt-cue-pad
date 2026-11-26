@@ -62,7 +62,18 @@ export class Engine extends EventTarget {
   }
 
   static signature(tile) {
-    return `${tile.trackId}|${tile.startAt || 0}`;
+    return `${tile.trackId}|${tile.startAt || 0}|${tile.endAt || 0}`;
+  }
+
+  // Trim points in frames: start (inclusive) and end (exclusive) of the part
+  // of the track this tile plays. tile.endAt of 0 or null means the end.
+  static trimFrames(tile, length, sampleRate) {
+    const minFrames = Math.round(0.05 * sampleRate);
+    const startAt = Math.max(0, tile.startAt || 0);
+    const startFrame = Math.min(Math.floor(startAt * sampleRate), Math.max(0, length - minFrames));
+    let endFrame = tile.endAt > 0 ? Math.round(tile.endAt * sampleRate) : length;
+    endFrame = Math.min(length, Math.max(startFrame + minFrames, endFrame));
+    return { startFrame, endFrame };
   }
 
   prepStatus(tileId) {
@@ -100,11 +111,10 @@ export class Engine extends EventTarget {
         try {
           const bytes = await this.loadBytes(tile.trackId);
           const full = await ctx.decodeAudioData(bytes);
-          const startAt = Math.min(Math.max(0, tile.startAt || 0), Math.max(0, full.duration - 0.05));
-          const startFrame = Math.floor(startAt * full.sampleRate);
+          const { startFrame, endFrame } = Engine.trimFrames(tile, full.length, full.sampleRate);
           const headFrames = Math.min(
             Math.round(HEAD_SECONDS * full.sampleRate),
-            full.length - startFrame
+            endFrame - startFrame
           );
           const head = ctx.createBuffer(full.numberOfChannels, Math.max(1, headFrames), full.sampleRate);
           for (let c = 0; c < full.numberOfChannels; c++) {
@@ -114,11 +124,12 @@ export class Engine extends EventTarget {
             status: 'ready',
             head,
             startFrame,
+            endFrame,
             headFrames,
             sampleRate: full.sampleRate,
             trackDuration: full.duration,
-            playDuration: (full.length - startFrame) / full.sampleRate,
-            needsTail: startFrame + headFrames < full.length,
+            playDuration: (endFrame - startFrame) / full.sampleRate,
+            needsTail: startFrame + headFrames < endFrame,
           });
         } catch (err) {
           console.error('Could not load tile', tile, err);
@@ -229,21 +240,24 @@ export class Engine extends EventTarget {
       const src = ctx.createBufferSource();
       src.buffer = full;
       src.connect(player.gain);
+      const endSec = prep.endFrame / full.sampleRate;
       if (player.loop) {
         src.loop = true;
         src.loopStart = prep.startFrame / full.sampleRate;
-        src.loopEnd = full.duration;
+        src.loopEnd = endSec;
       }
       const headLen = prep.headFrames / prep.sampleRate;
       const when = player.t0 + headLen;
       const offset = (prep.startFrame + prep.headFrames) / full.sampleRate;
+      // A looping source ignores the duration; otherwise it stops at the trim end.
+      const dur = (from) => (player.loop ? undefined : Math.max(0.001, endSec - from));
       if (when > ctx.currentTime + 0.01) {
-        src.start(when, offset);
+        src.start(when, offset, dur(offset));
         player.tailState = 'scheduled';
       } else {
         // Decoding took longer than the head (should not happen in practice).
         const late = ctx.currentTime - when;
-        src.start(ctx.currentTime, offset + late);
+        src.start(ctx.currentTime, offset + late, dur(offset + late));
         player.tailState = 'late';
         console.warn('Tail started late by', late.toFixed(3), 's');
       }
@@ -341,11 +355,13 @@ export class Engine extends EventTarget {
     let src = null;
     if (pl.full) {
       const startSec = prep.startFrame / pl.full.sampleRate;
+      const endSec = prep.endFrame / pl.full.sampleRate;
       src = ctx.createBufferSource();
       src.buffer = pl.full;
-      if (pl.loop) { src.loop = true; src.loopStart = startSec; src.loopEnd = pl.full.duration; }
+      if (pl.loop) { src.loop = true; src.loopStart = startSec; src.loopEnd = endSec; }
       src.connect(pl.gain);
-      src.start(t, startSec + pos);
+      if (pl.loop) src.start(t, startSec + pos);
+      else src.start(t, startSec + pos, Math.max(0.001, endSec - startSec - pos));
       if (!pl.loop) src.onended = pl.finalize;
       pl.tailState = 'scheduled';
     } else if (!prep.needsTail || pos < headLen - 0.05) {
