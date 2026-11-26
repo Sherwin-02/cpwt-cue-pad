@@ -156,6 +156,22 @@ await remote.screenshot({ path: path.join(fixtures, 'remote-go.png') });
 await remote.locator('#stopAll').dispatchEvent('pointerdown');
 await host.waitForFunction(() => window.cuepad.engine.players.size === 0, null, { timeout: 3000 });
 
+// In from the remote with nothing playing arms a fade-in for the next tile tapped
+await remote.waitForFunction(() => !document.querySelector('#fadeInBtn').disabled, null, { timeout: 3000 });
+await remote.locator('#fadeInBtn').dispatchEvent('pointerdown');
+await host.waitForFunction(() => window.cuepad.state.fadeArmed, null, { timeout: 3000 });
+await remote.waitForFunction(() => document.querySelector('#fadeInBtn').getAttribute('aria-pressed') === 'true', null, { timeout: 3000 });
+check(await host.evaluate(() => window.cuepad.engine.players.size === 0), 'In on the remote arms the fade without starting anything');
+await remote.waitForTimeout(150);
+await remote.screenshot({ path: path.join(fixtures, 'fade-armed-phone.png') });
+await remote.locator('.tile').dispatchEvent('pointerdown');
+await host.waitForFunction((id) => window.cuepad.engine.isPlaying(id), tileId, { timeout: 3000 });
+await host.waitForTimeout(300);
+const rg = await host.evaluate((id) => window.cuepad.engine.players.get(id).gain.gain.value, tileId);
+check(rg < 0.5 && !(await host.evaluate(() => window.cuepad.state.fadeArmed)), `tile tapped on the remote fades in (level ${rg.toFixed(2)} at 0.3 s)`);
+await remote.locator('#stopAll').dispatchEvent('pointerdown');
+await host.waitForFunction(() => window.cuepad.engine.players.size === 0, null, { timeout: 3000 });
+
 // Reconnect without scanning: the remote saves a standby from the main iPad
 await remote.waitForFunction(() => window.cuepadRemote.pairing && window.cuepadRemote.pairing.offer, null, { timeout: 8000 }).catch(() => {});
 check(await remote.evaluate(() => !!(window.cuepadRemote.pairing && window.cuepadRemote.pairing.offer)), 'remote has a standby link ready for reconnecting');

@@ -478,6 +478,11 @@ body.remote-pairing .transport { display: none; }
 .btn.ctl.stop { min-width: 80px; background: var(--danger); color: var(--white); border: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.25) inset; margin-left: auto; }
 .btn.tp-fade { padding: 8px 12px; min-width: 96px; height: 62px; background: transparent; color: var(--apricot); border: 2px solid rgba(242, 183, 142, 0.6); border-radius: 14px; }
 .btn.tp-fade[aria-pressed="true"] { background: var(--apricot); color: var(--wine); border-color: var(--apricot); }
+/* In pressed with nothing playing: the next tile tapped fades in */
+#fadeInBtn.armed { background: var(--apricot); color: var(--wine); box-shadow: 0 0 0 3px var(--cream); animation: armPulse 1.2s ease-in-out infinite; }
+.transport.armed .tp-name { color: var(--apricot); opacity: 1; font-weight: 800; }
+@keyframes armPulse { 50% { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.15); } }
+@media (prefers-reduced-motion: reduce) { #fadeInBtn.armed { animation: none; } }
 
 /* Phones: Next on top, then GO and the play controls, then the fades */
 @media (max-width: 700px) {
