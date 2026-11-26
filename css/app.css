@@ -348,6 +348,11 @@ body.remote-pairing .remote-pair p { margin: 8px 0; }
 body.remote-pairing .qr-box.big { width: min(100%, 64vh, 460px); margin: 12px auto; padding: 12px; }
 body.remote-mode .show-btn { cursor: default; }
 body.remote-mode .show-btn .caret { display: none; }
+body.remote-mode .show-btn:disabled { opacity: 1; color: inherit; }
+body.remote-mode .show-btn.can-switch { cursor: pointer; }
+body.remote-mode .show-btn.can-switch .caret { display: inline; }
+.switch-confirm p { margin: 0 0 12px; font-size: 17px; line-height: 1.45; }
+.btn.stop-switch { background: var(--danger); color: var(--white); font-weight: 700; }
 body.remote-mode .grid { touch-action: pan-y; }
 @media (max-width: 700px) { body.remote-mode .status { display: block; font-size: 13px; } }
 /* Remote on a portrait phone: slimmer rail and padding so three tile columns fit */

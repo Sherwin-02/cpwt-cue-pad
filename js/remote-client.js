@@ -252,6 +252,103 @@ async function uploadFiles(files) {
   setUploadNote((ok + bad + skip).trim(), problems.length ? 9000 : 4000, !problems.length && !skipped.length);
 }
 
+// ---------------------------------------------------------------- switching shows
+
+const sheet = () => $('#sheet');
+let showsKey = '';
+let confirmFor = null; // show id waiting on "Stop and switch"
+
+function h(tag, props = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') n.className = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else if (v === true) n.setAttribute(k, '');
+    else if (v !== false && v != null) n.setAttribute(k, v);
+  }
+  for (const c of kids) if (c != null) n.append(c);
+  return n;
+}
+
+// Older main iPads don't send their show list, so the button stays inert there.
+function renderShowBtn() {
+  const can = !!(snap && Array.isArray(snap.shows) && snap.shows.length > 1 && connected);
+  const btn = $('#showBtn');
+  btn.disabled = !can;
+  btn.classList.toggle('can-switch', can);
+  btn.setAttribute('aria-label', can ? `Show: ${snap.showName || 'Show'}. Tap to switch shows` : `Show: ${(snap && snap.showName) || 'Show'}`);
+  if (sheet().open && sheet().dataset.kind === 'shows') {
+    const key = JSON.stringify([snap && snap.showId, snap && snap.shows, isBusy()]);
+    if (key !== showsKey) renderShowsSheet();
+  }
+}
+
+// Anything playing, fading or paused would be stopped by a switch.
+function isBusy() {
+  return !!(snap && snap.tiles.some((t) => t.playing || t.paused || t.stopping));
+}
+
+function busyLabel() {
+  const t = snap && snap.tiles.find((x) => x.playing || x.stopping) || snap.tiles.find((x) => x.paused);
+  return t ? `${t.n}. ${t.label}` : 'A cue';
+}
+
+function openShowsSheet() {
+  if ($('#showBtn').disabled) return;
+  confirmFor = null;
+  const d = sheet();
+  d.dataset.kind = 'shows';
+  d.onclose = () => { delete d.dataset.kind; confirmFor = null; };
+  renderShowsSheet();
+  if (!d.open) d.showModal();
+}
+
+function closeSheet() {
+  if (sheet().open) sheet().close();
+}
+
+function chooseShow(id) {
+  if (!snap || id === snap.showId) { closeSheet(); return; }
+  if (isBusy() && confirmFor !== id) { confirmFor = id; renderShowsSheet(); return; }
+  sendCmd({ t: 'openShow', id });
+  closeSheet();
+}
+
+function renderShowsSheet() {
+  const d = sheet();
+  if (!snap) { closeSheet(); return; }
+  showsKey = JSON.stringify([snap.showId, snap.shows, isBusy()]);
+  const shows = snap.shows || [];
+  const target = confirmFor && shows.find((s) => s.id === confirmFor);
+  if (confirmFor && !target) confirmFor = null;
+  let body;
+  if (target && isBusy()) {
+    body = h('div', { class: 'switch-confirm' },
+      h('p', {}, `${busyLabel()} is playing on the main iPad. Switching to “${target.name}” stops all audio.`),
+      h('div', { class: 'btn-row' },
+        h('button', { class: 'btn', type: 'button', onclick: () => { confirmFor = null; renderShowsSheet(); } }, 'Keep playing'),
+        h('button', { class: 'btn stop-switch', type: 'button', onclick: () => chooseShow(target.id) }, 'Stop and switch')));
+  } else {
+    confirmFor = null;
+    body = h('div', {},
+      h('ul', { class: 'list' }, ...shows.map((s) => h('li', {}, h('button', {
+        type: 'button',
+        class: s.id === snap.showId ? 'current' : '',
+        'aria-current': s.id === snap.showId ? 'true' : false,
+        onclick: () => chooseShow(s.id),
+      }, s.name, h('small', {}, `${s.cues} cue${s.cues === 1 ? '' : 's'}${s.id === snap.showId ? ' · on now' : ''}`))))),
+      h('p', { class: 'muted' }, isBusy()
+        ? 'Audio is playing. You\'ll be asked before anything stops.'
+        : 'Switches the show on the main iPad. Create, rename or delete shows there.'));
+  }
+  d.textContent = '';
+  d.append(
+    h('div', { class: 'sheet-head' },
+      h('h2', {}, target ? 'Switch show?' : 'Shows'),
+      h('button', { class: 'btn ghost', type: 'button', onclick: closeSheet }, target ? 'Cancel' : 'Done')),
+    h('div', { class: 'sheet-body' }, body));
+}
+
 // ---------------------------------------------------------------- link handling
 
 function useLink(l) {
@@ -267,11 +364,16 @@ function useLink(l) {
       if (w) { replyWaiters.delete(m.id); w(m); }
       return;
     }
+    if (m.t === 'notice') {
+      setUploadNote(String(m.msg || ''), 6000, false);
+      return;
+    }
     if (m.t === 'state') {
       snap = m;
       snapAt = performance.now();
       if (volumeRail && typeof m.vol === 'number') volumeRail.set(m.vol);
       render();
+      renderShowBtn();
       renderPauseBtn($('#pauseAll'), m.pause || 'idle');
       if (connected) { setStatus('Connected'); if (!uploadNote) banner(''); }
       $('#remoteAddBtn').hidden = false;
@@ -320,6 +422,7 @@ async function prepareStandby(l, offerSdp) {
 }
 
 function forget(text) {
+  closeSheet();
   pairing = null;
   savePairing();
   clearTimeout(retryTimer);
@@ -398,6 +501,7 @@ export async function startRemote() {
   $('#settingsBtn').hidden = true;
   $('#remoteBtn').hidden = true;
   $('#showBtn').disabled = true;
+  $('#showBtn').addEventListener('click', openShowsSheet);
   $('.app-name').textContent = 'Cue Pad Remote';
   $('#logo')?.addEventListener('error', (e) => e.target.remove());
 
@@ -416,7 +520,7 @@ export async function startRemote() {
   setupControls();
   requestAnimationFrame(frame);
   // Used by automated tests.
-  window.cuepadRemote = { uploadFiles, get sending() { return sending; }, get link() { return link; }, get pairing() { return pairing; }, get identity() { return identity; }, reconnect: () => { attempt = 0; return reconnect(); } };
+  window.cuepadRemote = { uploadFiles, openShowsSheet, chooseShow, get sending() { return sending; }, get link() { return link; }, get pairing() { return pairing; }, get identity() { return identity; }, reconnect: () => { attempt = 0; return reconnect(); } };
 
   showMessage('Getting ready…', 'Starting the remote.');
   try { identity = await remoteIdentity(); } catch { identity = null; }

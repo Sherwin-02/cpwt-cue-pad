@@ -8,7 +8,7 @@ import { createReceiver } from './upload.js';
 import { renderPauseBtn, setupOrientationGuard, squareGrid } from './layout.js';
 import { createEditors, fmtPrecise } from './editor.js';
 
-export const APP_VERSION = '1.9.0';
+export const APP_VERSION = '1.10.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -342,6 +342,10 @@ export function snapshot() {
     ...transportOpts(),
     focus: focusInfo(),
     showName: show ? show.name : '',
+    showId: show ? show.id : null,
+    shows: state.shows
+      .map((s) => ({ id: s.id, name: s.name, cues: s.tiles.length }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
     tiles: show ? show.tiles.map((t, i) => {
       const p = engine.position(t.id);
       return {
@@ -829,6 +833,18 @@ async function addFiles(files, replaceTileId = null, { quiet = false } = {}) {
 
 // ---------------------------------------------------------------- shows
 
+// A remote asked to switch shows. Refused while this iPad is mid-edit, so a
+// tile editor or Trim/Join sheet can't end up saving into the wrong show.
+// Returns a message for the remote, or null when the switch went ahead.
+async function openShowFromRemote(id) {
+  if (!state.shows.some((s) => s.id === id)) return 'That show is no longer on the main iPad.';
+  if (state.show && state.show.id === id) return null;
+  if (state.editing || sheet().open) return 'The main iPad is busy (Edit mode or a menu is open there). Finish there, then try again.';
+  setFadeArmed(false);
+  await openShow(id);
+  return null;
+}
+
 async function openShow(id) {
   const show = state.shows.find((s) => s.id === id);
   if (!show) return;
@@ -1060,6 +1076,7 @@ async function init() {
     seekBy: (d) => { seekBy(d); kick(); },
     seekTo: (p) => { seekTo(p); kick(); },
     setFadeMode,
+    openShow: openShowFromRemote,
     upload: createReceiver({
       save: (file) => addFiles([file], null, { quiet: true }),
       onActivity: (a) => {
