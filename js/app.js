@@ -7,7 +7,7 @@ import { createTransport } from './transport.js';
 import { createReceiver } from './upload.js';
 import { renderPauseBtn, setupOrientationGuard, squareGrid } from './layout.js';
 
-export const APP_VERSION = '1.8.0';
+export const APP_VERSION = '1.8.1';
 
 const COLORS = [
   { key: 'none', name: 'None' },
