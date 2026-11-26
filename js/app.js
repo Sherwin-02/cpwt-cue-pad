@@ -6,8 +6,9 @@ import { createVolumeRail, toGain } from './volume.js';
 import { createTransport } from './transport.js';
 import { createReceiver } from './upload.js';
 import { renderPauseBtn, setupOrientationGuard, squareGrid } from './layout.js';
+import { createEditors, fmtPrecise } from './editor.js';
 
-export const APP_VERSION = '1.8.2';
+export const APP_VERSION = '1.9.0';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -49,7 +50,7 @@ function cleanName(filename) {
 }
 
 function newTile(trackId, label) {
-  return { id: uid(), trackId, label, color: 'none', volume: 1, startAt: 0, fadeIn: 0, fadeOut: 2, loop: false, layer: false };
+  return { id: uid(), trackId, label, color: 'none', volume: 1, startAt: 0, endAt: 0, fadeIn: 0, fadeOut: 2, loop: false, layer: false };
 }
 
 // ---------------------------------------------------------------- state
@@ -414,6 +415,8 @@ function renderBanner() {
   b.classList.toggle('info', info);
 }
 
+const isTrimmed = (tile) => (tile.startAt || 0) > 0 || (tile.endAt || 0) > 0;
+
 function tileNode(tile, index) {
   const status = engine.prepStatus(tile.id);
   const node = el('button', {
@@ -425,7 +428,7 @@ function tileNode(tile, index) {
   },
   el('div', { class: 'top' },
     el('span', { class: 'num' }, String(index + 1)),
-    el('span', { class: 'flags' }, [tile.loop ? '⟳ loop' : null, tile.layer ? ' ⧉ over' : null].filter(Boolean).join(' '))),
+    el('span', { class: 'flags' }, [isTrimmed(tile) ? '✂' : null, tile.loop ? '⟳ loop' : null, tile.layer ? '⧉ over' : null].filter(Boolean).join(' '))),
   el('div', { class: 'label' }, tile.label),
   el('div', { class: 'info' }, ''),
   el('div', { class: 'progress' }));
@@ -672,8 +675,12 @@ function openTileEditor(tileId) {
     })),
     el('div', { class: 'field' }, el('span', {}, 'Colour'), swatches),
     el('label', { class: 'field' }, volLabel, vol),
+    el('div', { class: 'field' },
+      el('span', {}, 'Trim'),
+      el('div', { class: 'trim-summary' },
+        el('span', {}, trimSummary(tile, prep)),
+        el('button', { class: 'btn', type: 'button', disabled: !track, onclick: () => editors.openTrim(tile) }, '✂ Trim start / end'))),
     el('div', { class: 'row' },
-      field('Start at (seconds)', numInput(tile.startAt || 0, { step: 0.1, min: 0, max: 3600 }, (v) => { tile.startAt = v; commit(true); }), 'Skips silence at the start'),
       field('Fade in (s)', numInput(tile.fadeIn || 0, { step: 0.5, min: 0, max: 30 }, (v) => { tile.fadeIn = v; commit(); })),
       field('Fade out (s)', numInput(tile.fadeOut ?? 2, { step: 0.5, min: 0, max: 30 }, (v) => { tile.fadeOut = v; commit(); }), 'Used when you tap to stop')),
     el('label', { class: 'check' }, el('input', { type: 'checkbox', checked: !!tile.loop, onchange: (e) => { tile.loop = e.target.checked; commit(); } }), 'Loop (repeat until stopped)'),
@@ -682,6 +689,8 @@ function openTileEditor(tileId) {
     el('div', { class: 'btn-row' },
       previewBtn,
       el('button', { class: 'btn', type: 'button', onclick: () => $('#replacePicker').click() }, 'Replace audio')),
+    el('div', { class: 'btn-row' },
+      el('button', { class: 'btn', type: 'button', disabled: state.show.tiles.length < 2, onclick: () => openJoinSheet(tile.id) }, '⧉ Join with other cues…')),
     el('div', { class: 'btn-row' },
       el('button', {
         class: 'btn', type: 'button', disabled: nextIndex() === idx,
@@ -706,6 +715,62 @@ function openTileEditor(tileId) {
       }, 'Delete cue')));
 
   openSheet(`Cue ${idx + 1}`, body, { onClose: () => { editingTileId = null; } });
+}
+
+function trimSummary(tile, prep) {
+  const full = prep && prep.trackDuration;
+  if (!isTrimmed(tile)) return full ? `Whole track · ${fmtTime(full)}` : 'Whole track';
+  const end = tile.endAt > 0 ? tile.endAt : full;
+  const len = end != null ? end - (tile.startAt || 0) : null;
+  return `${fmtPrecise(tile.startAt || 0)} to ${end != null ? fmtPrecise(end) : 'end'} · plays ${fmtTime(len)}`;
+}
+
+// ---------------------------------------------------------------- trim / join
+
+const editors = createEditors({
+  el, engine, db, fmtTime, openSheet,
+  ensureAudio: async () => { if (!engine.running) await start(); },
+  reopenTile: (id) => { if (state.editing && tileById(id)) openTileEditor(id); },
+  onTrimSaved: async () => {
+    await saveShow();
+    renderGrid();
+    renderStatus();
+    loadShowAudio();
+    notify();
+  },
+  onJoined: async ({ parts, blob, label, removeOriginals }) => {
+    const id = uid();
+    const name = `${label}.wav`;
+    const info = { id, name, type: 'audio/wav', size: blob.size, addedAt: Date.now(), joinedFrom: parts.map((t) => t.trackId) };
+    await db.put('tracks', { ...info, blob });
+    state.tracks.set(id, info);
+    const tile = newTile(id, label);
+    tile.color = parts[0].color || 'none';
+    const tiles = state.show.tiles;
+    const firstIdx = Math.min(...parts.map((t) => tiles.indexOf(t)));
+    const nextWas = state.nextId;
+    tiles.splice(firstIdx + 1, 0, tile);
+    if (removeOriginals) {
+      const gone = new Set(parts.map((t) => t.id));
+      for (const t of parts) engine.stop(t.id, 0);
+      state.show.tiles = tiles.filter((t) => !gone.has(t.id));
+      if (gone.has(nextWas)) { state.nextId = tile.id; db.setMeta(`next:${state.show.id}`, tile.id).catch(() => {}); }
+    }
+    await saveShow();
+    renderAll();
+    loadShowAudio();
+    notify();
+    openTileEditor(tile.id);
+  },
+});
+
+function openJoinSheet(firstTileId) {
+  editors.openJoin(state.show, firstTileId, {
+    tileDuration: (id) => {
+      const p = engine.preps.get(id);
+      return p && p.status === 'ready' ? p.playDuration : null;
+    },
+  });
 }
 
 async function moveTile(id, delta) {
@@ -1072,6 +1137,6 @@ function setupKeys() {
 }
 
 // Exposed for automated tests and the remote module.
-window.cuepad = { state, engine, setVolume, seekBy, seekTo, setFadeMode, setFadeTime, fadeIn, fromStart, getVolume: () => volume, toggle, stopAll, fadeAll, pauseAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount, pairedCount, disconnectAll };
+window.cuepad = { state, engine, editors, openJoinSheet, openTileEditor, setVolume, seekBy, seekTo, setFadeMode, setFadeTime, fadeIn, fromStart, getVolume: () => volume, toggle, stopAll, fadeAll, pauseAll, go, stepNext, nextIndex, snapshot, bus, start, addFiles, remoteCount, pairedCount, disconnectAll };
 
 init();
