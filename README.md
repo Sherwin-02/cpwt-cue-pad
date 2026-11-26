@@ -57,6 +57,10 @@ The main iPad plays all the audio. A remote shows the same tiles and sends taps 
 3. Scan the QR code with the remote's Camera app and tap the link.
 4. The remote shows its own QR code. Hold it up to the main iPad's front camera. Both say **Connected** within a few seconds.
 
+**Front or back camera:** if the main device has more than one camera, tap **Switch camera** under the camera view. It remembers your choice.
+
+**No camera on the main device (for example a laptop):** step 1 still works, because the laptop shows its code and the phone scans it. For step 2, tap **No camera there? Send code instead** on the remote and send the code to the laptop (AirDrop, Messages, WhatsApp or email to yourself). On the laptop, open **No camera? Paste the code instead**, paste it and tap **Connect**. The code only works with the laptop's current pairing screen, so keep that screen open while you send it.
+
 You only scan once. After that the remote reconnects by itself whenever the link drops, for example when the phone's screen locks, you switch apps, or the wifi blips, with no walking back to the main iPad. Its screen says **Reconnecting…** and then **Connected** again within a few seconds of the phone being back on and unlocked. The main iPad keeps playing the whole time and can still be tapped directly. The Remote button shows how many remotes are connected, and how many are away and expected back.
 
 There's no idle timeout: while both screens are on and on the same wifi, the link stays up for the whole event.

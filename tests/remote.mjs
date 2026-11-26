@@ -80,7 +80,14 @@ await remote.waitForSelector('.remote-pair .qr-box svg', { timeout: 15000 });
 const answer = await decodeQr(remote, '.remote-pair .qr-box svg');
 check(!!answer && answer.startsWith('CPA1:'), `remote QR decodes to an answer code (${answer ? answer.length : 0} chars)`);
 
-check(await host.evaluate((a) => window.cuepad.pairWithCode(a), answer), 'host accepts the remote code');
+// Pair the no-camera way: the remote's code as text, pasted on the main device
+await remote.click('.pair-send .btn');
+const codeText = await remote.inputValue('.pair-send .pair-paste');
+check(codeText === answer, `remote can show its code as text to send (${codeText.length} chars)`);
+await host.click('.pair-nocam summary');
+await host.fill('.pair-nocam .pair-paste', '  ' + codeText.replace(/(.{60})/g, '$1\n') + '\n');
+await host.click('.pair-nocam .btn.primary');
+check(true, 'host accepts the pasted code');
 await remote.waitForFunction(() => document.querySelectorAll('.tile').length === 1, null, { timeout: 15000 });
 check(true, 'remote shows the main iPad\'s tiles');
 check(await host.evaluate(() => window.cuepad.remoteCount()) === 1, 'host counts one connected remote');

@@ -64,14 +64,45 @@ function setPairingView(on) {
   if (on) renderedKey = '';
 }
 
-function showPairing(html, note) {
+function showPairing(html, note, codeText = '') {
   setPairingView(true);
   const grid = $('#grid');
   grid.className = 'grid';
   grid.innerHTML = '';
   const card = document.createElement('div');
   card.className = 'remote-pair';
-  card.innerHTML = `<h2>Show this to the main iPad</h2><div class="qr-box big">${html}</div><p>Hold this screen up to the main iPad's front camera until it says connected. Turn your brightness up if it doesn't read.</p><p class="muted">${note || ''}</p>`;
+  card.innerHTML = `<h2>Show this to the main iPad</h2><div class="qr-box big">${html}</div><p>Hold this screen up to the main iPad's camera until it says connected. Turn your brightness up if it doesn't read.</p><p class="muted">${note || ''}</p>`;
+  if (codeText) {
+    const box = document.createElement('div');
+    box.className = 'pair-send';
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn';
+    btn.textContent = 'No camera there? Send code instead';
+    const msg = document.createElement('p');
+    msg.className = 'muted';
+    const ta = document.createElement('textarea');
+    ta.className = 'pair-paste';
+    ta.readOnly = true;
+    ta.rows = 3;
+    ta.value = codeText;
+    ta.hidden = true;
+    btn.addEventListener('click', async () => {
+      ta.hidden = false;
+      msg.textContent = 'Send this code to the main device, then paste it there under "No camera? Paste the code instead".';
+      if (navigator.share) {
+        try { await navigator.share({ text: codeText }); return; } catch (err) { if (err && err.name === 'AbortError') return; }
+      }
+      try {
+        await navigator.clipboard.writeText(codeText);
+        msg.textContent = 'Code copied. Send it to the main device (Messages, WhatsApp or email to yourself), then paste it there under "No camera? Paste the code instead".';
+      } catch {
+        ta.select();
+      }
+    });
+    box.append(btn, msg, ta);
+    card.append(box);
+  }
   grid.append(card);
 }
 
@@ -383,7 +414,7 @@ async function pairFresh(code) {
     pairing = { from: code, offer: null };
     savePairing();
     useLink(res.link);
-    showPairing(await qrSvg(res.answerText), 'You only need to do this once. After that, this remote reconnects by itself.');
+    showPairing(await qrSvg(res.answerText), 'You only need to do this once. After that, this remote reconnects by itself.', res.answerText);
   } catch (err) {
     console.error(err);
     setStatus('Not paired', true);
