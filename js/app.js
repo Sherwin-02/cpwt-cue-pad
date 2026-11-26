@@ -7,7 +7,7 @@ import { createTransport } from './transport.js';
 import { createReceiver } from './upload.js';
 import { renderPauseBtn, setupOrientationGuard, squareGrid } from './layout.js';
 
-export const APP_VERSION = '1.8.1';
+export const APP_VERSION = '1.8.2';
 
 const COLORS = [
   { key: 'none', name: 'None' },
@@ -67,6 +67,7 @@ const state = {
   nextId: null,
   fadeMode: false,
   fadeTime: 5, // seconds, for the Fade in / Fade out buttons
+  fadeArmed: false, // In was pressed with nothing playing: the next cue started fades in
 };
 
 const engine = new Engine((trackId) => db.trackBytes(trackId));
@@ -87,9 +88,11 @@ async function saveShow() {
 
 // opts.fadeIn (seconds): start with a fade-in and fade the previous cue out
 // over the same time (the Fade in button). Otherwise the Fade switch decides.
+// An armed Fade in (In pressed with nothing playing) applies to the next cue
+// that starts, from a tile, the remote or GO.
 export function toggle(tileId, opts = {}) {
   const tile = tileById(tileId);
-  const xfade = opts.fadeIn > 0 ? opts.fadeIn : null;
+  let xfade = opts.fadeIn > 0 ? opts.fadeIn : null;
   if (!tile) return;
   if (!engine.running) {
     showOverlay('Tap anywhere to turn audio back on');
@@ -106,6 +109,10 @@ export function toggle(tileId, opts = {}) {
   if (engine.prepStatus(tileId) !== 'ready') {
     flash(tileId);
     return;
+  }
+  if (state.fadeArmed) {
+    xfade = xfade || state.fadeTime;
+    setFadeArmed(false);
   }
   if (!tile.layer) {
     for (const id of engine.playingIds()) {
@@ -211,6 +218,7 @@ async function loadNext() {
 }
 
 export function stopAll() {
+  setFadeArmed(false);
   engine.stopAll(0);
 }
 
@@ -220,12 +228,24 @@ export function fadeAll() {
   for (const id of engine.pausedIds()) engine.stop(id, 0);
 }
 
-// Fade in: a paused current cue carries on, fading in. Otherwise the Next cue
-// starts, fading in, while whatever was playing fades out over the same time.
+// Fade in: a paused current cue carries on, fading in. With nothing playing,
+// it arms (or, pressed again, disarms) a fade-in for the next tile tapped.
+// While a cue plays, the Next cue starts fading in and the playing one fades
+// out over the same time.
 export function fadeIn() {
   const id = engine.focusId();
-  if (id && engine.isPaused(id)) { engine.resume(id, state.fadeTime); return; }
+  if (id && engine.isPaused(id)) { setFadeArmed(false); engine.resume(id, state.fadeTime); return; }
+  if (!engine.playingIds().length) { setFadeArmed(!state.fadeArmed); return; }
   go({ fadeIn: state.fadeTime });
+}
+
+function setFadeArmed(on) {
+  on = !!on;
+  if (state.fadeArmed === on) return;
+  state.fadeArmed = on;
+  document.body.classList.toggle('fade-armed', on);
+  if (transport) transport.update(focusInfo(), transportOpts());
+  notify();
 }
 
 // Play the current cue again from its start point.
@@ -239,6 +259,8 @@ export function fromStart() {
 function canFadeIn() {
   const id = engine.focusId();
   if (id && engine.isPaused(id)) return true;
+  if (state.fadeArmed) return true;
+  if (!engine.playingIds().length) return !!(state.show && state.show.tiles.length);
   const n = nextInfo();
   return !n.end && engine.prepStatus(n.id) === 'ready';
 }
@@ -307,7 +329,7 @@ export function setFadeMode(on) {
 }
 
 function transportOpts() {
-  return { fade: !!state.fadeMode, fadeTime: state.fadeTime, canFadeIn: canFadeIn(), canFadeOut: engine.playingIds().length > 0 };
+  return { fade: !!state.fadeMode, fadeTime: state.fadeTime, fadeArmed: !!state.fadeArmed, canFadeIn: canFadeIn(), canFadeOut: engine.playingIds().length > 0 };
 }
 
 export function snapshot() {
