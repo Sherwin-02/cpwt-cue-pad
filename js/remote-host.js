@@ -5,7 +5,7 @@ const links = new Set();
 // Paired remotes by their id: { link (the live one), standby } so a remote that
 // drops can reconnect on its own. Kept for as long as this page stays open.
 const paired = new Map();
-let api = null; // { toggle, stopAll, fadeAll, go, stepNext, snapshot, bus, openSheet, closeSheet, el, onCount }
+let api = null; // { toggle, stopAll, fadeAll, go, stepNext, openShow, snapshot, bus, openSheet, closeSheet, el, onCount }
 let broadcastTimer = null;
 let lastSent = '';
 
@@ -66,6 +66,13 @@ function addLink(link) {
     else if (m.t === 'seek') api.seekBy(Number(m.delta) || 0);
     else if (m.t === 'seekTo') api.seekTo(Number(m.pos) || 0);
     else if (m.t === 'fadeMode') api.setFadeMode(!!m.on);
+    else if (m.t === 'openShow') {
+      Promise.resolve(api.openShow(String(m.id || ''))).then((msg) => {
+        if (msg) link.send({ t: 'notice', msg });
+        broadcast(true);
+      });
+      return;
+    }
     else if (m.t === 'hello') {
       send(link, api.snapshot());
       if (typeof m.rid === 'string' && m.rid) adopt(m.rid, link, m.reconnect !== false);

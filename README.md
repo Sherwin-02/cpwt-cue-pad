@@ -71,6 +71,8 @@ The main iPad holds the pairing for as long as Cue Pad stays open on it. If Cue 
 
 You can connect several remotes. Phones work upright or sideways.
 
+**Switching shows from a remote:** tap the show name at the top left of the remote (it has a ▾ when the main iPad has more than one show) and pick a show. The main iPad switches to it and the remote's tiles change to match. If anything is playing or paused, the remote asks first (**Keep playing** or **Stop and switch**), because switching stops all audio. A switch is turned down, with a note on the remote, while the main iPad is in Edit mode or has a menu open. Creating, renaming and deleting shows is only done on the main iPad.
+
 **Adding tracks from a remote:** tap **+ Add tracks** (**+ Tracks** on a phone) and pick audio files from the phone's Files app. They're sent straight to the main iPad over the same wifi link, saved there, and added as new cues at the end of the show. The remote shows progress; keep its screen on until it says **Added**. The main iPad shows a small progress note at the top and nothing pops up over the show. Files that aren't audio are refused.
 
 Some church or guest wifi networks stop devices from talking to each other. If pairing never connects, put both devices on a phone hotspot or a small travel router.

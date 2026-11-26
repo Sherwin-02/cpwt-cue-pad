@@ -245,6 +245,51 @@ await remote.waitForTimeout(300);
 check((await remote.textContent('#banner')).includes('aren\'t audio') && await host.evaluate(() => window.cuepad.state.show.tiles.length) === 2, 'non-audio files are refused');
 
 // 4. Forget on the main iPad: the remote is told and stops trying.
+// Switching shows from the remote
+const firstShow = await host.evaluate(() => window.cuepad.state.show.id);
+await host.evaluate(() => {
+  window.cuepad.state.shows.push({ id: 'show-two', name: 'Youth night', tiles: [], updatedAt: Date.now() });
+  window.cuepad.bus.dispatchEvent(new Event('change'));
+});
+await remote.waitForFunction(() => !document.querySelector('#showBtn').disabled, null, { timeout: 3000 }).catch(() => {});
+check(await remote.evaluate(() => !document.querySelector('#showBtn').disabled), 'show menu on the remote is enabled once the main iPad has two shows');
+await remote.click('#showBtn');
+const listed = await remote.evaluate(() => [...document.querySelectorAll('#sheet .list li button')].map((b) => b.firstChild.textContent));
+check(listed.length === 2 && listed.includes('Youth night'), `remote lists the main iPad's shows (${listed.join(', ')})`);
+await remote.screenshot({ path: path.join(fixtures, 'remote-shows.png') });
+await host.locator('.tile').first().dispatchEvent('pointerdown');
+await host.waitForFunction(() => window.cuepad.engine.playingIds().length > 0, null, { timeout: 3000 });
+await remote.waitForFunction(() => document.querySelector('#sheet .muted')?.textContent.includes('asked before'), null, { timeout: 3000 }).catch(() => {});
+await remote.locator('#sheet .list li button', { hasText: 'Youth night' }).click();
+await remote.waitForSelector('#sheet .switch-confirm', { timeout: 2000 }).catch(() => {});
+check(await remote.isVisible('#sheet .switch-confirm') && await host.evaluate(() => window.cuepad.state.show.id) === firstShow && await host.evaluate(() => window.cuepad.engine.playingIds().length > 0), 'with audio playing, the remote asks first and nothing changes yet');
+await remote.screenshot({ path: path.join(fixtures, 'remote-switch-confirm.png') });
+await remote.click('#sheet .switch-confirm .btn:not(.stop-switch)');
+check(await remote.isVisible('#sheet .list') && await host.evaluate(() => window.cuepad.engine.playingIds().length > 0), 'Keep playing goes back to the list and the cue carries on');
+await remote.locator('#sheet .list li button', { hasText: 'Youth night' }).click();
+await remote.click('#sheet .stop-switch');
+await host.waitForFunction(() => window.cuepad.state.show.id === 'show-two', null, { timeout: 3000 }).catch(() => {});
+await host.waitForFunction(() => window.cuepad.engine.players.size === 0, null, { timeout: 3000 }).catch(() => {});
+check(await host.evaluate(() => window.cuepad.state.show.id === 'show-two' && window.cuepad.engine.players.size === 0 && document.querySelector('#showName').textContent === 'Youth night'), 'Stop and switch stops the audio and switches the main iPad');
+await remote.waitForFunction(() => document.querySelector('#showName').textContent === 'Youth night' && !document.querySelector('.tile'), null, { timeout: 3000 }).catch(() => {});
+check(await remote.evaluate(() => document.querySelector('#showName').textContent === 'Youth night' && !document.querySelector('.tile') && !document.querySelector('#sheet').open), 'remote shows the new show (no tiles) and the menu closes');
+// Nothing playing: switches straight away, landscape phone too
+await remote.setViewportSize({ width: 844, height: 390 });
+await remote.click('#showBtn');
+await remote.screenshot({ path: path.join(fixtures, 'remote-shows-landscape.png') });
+await remote.locator('#sheet .list li button').filter({ hasNotText: 'Youth night' }).click();
+await host.waitForFunction((id) => window.cuepad.state.show.id === id, firstShow, { timeout: 3000 }).catch(() => {});
+check(await host.evaluate((id) => window.cuepad.state.show.id === id, firstShow), 'with nothing playing, choosing a show switches straight away (landscape)');
+await remote.waitForFunction(() => document.querySelectorAll('.tile').length === 2, null, { timeout: 5000 }).catch(() => {});
+check(await remote.evaluate(() => document.querySelectorAll('.tile').length) === 2, 'remote tiles come back for the first show');
+// Refused while the main iPad has a menu open
+await host.click('#showBtn');
+await remote.evaluate(() => window.cuepadRemote.chooseShow('show-two'));
+await remote.waitForFunction(() => document.querySelector('#banner').textContent.includes('busy'), null, { timeout: 3000 }).catch(() => {});
+check(await host.evaluate((id) => window.cuepad.state.show.id === id, firstShow) && await remote.evaluate(() => document.querySelector('#banner').textContent.includes('busy')), 'switch is refused, with a note on the remote, while the main iPad has a menu open');
+await host.evaluate(() => document.querySelector('#sheet').close());
+await remote.setViewportSize({ width: 390, height: 844 });
+
 await host.evaluate(() => window.cuepad.disconnectAll());
 await remote.waitForFunction(() => document.body.textContent.includes('disconnected this remote'), null, { timeout: 5000 }).catch(() => {});
 check(await remote.evaluate(() => document.body.textContent.includes('disconnected this remote') && !window.cuepadRemote.pairing), 'remote forgets the pairing when the main iPad disconnects it');
