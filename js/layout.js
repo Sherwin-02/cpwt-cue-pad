@@ -6,7 +6,9 @@ import { ICONS } from './icons.js';
 
 // Lays out `count` square tiles. Picks the largest square size that fits every
 // tile on screen without scrolling; if even minSide doesn't fit, it fills the
-// width and lets the grid scroll. Returns { fits, side, cols }.
+// width and lets the grid scroll. When several column counts give the same
+// size (tiles capped at maxSide), it takes the most columns, so tiles run
+// left to right across the screen before wrapping. Returns { fits, side, cols }.
 export function squareGrid(grid, count, { minSide = 96, maxSide = 200 } = {}) {
   const rect = grid.getBoundingClientRect();
   // Read the real padding and gap, which are smaller on phones.
@@ -17,11 +19,11 @@ export function squareGrid(grid, count, { minSide = 96, maxSide = 200 } = {}) {
   const h = rect.height - px(cs.paddingTop) - px(cs.paddingBottom);
   let best = null;
   if (count > 0 && w > 0 && h > 0) {
-    for (let cols = 1; cols <= 14; cols++) {
+    for (let cols = 1; cols <= Math.min(14, count); cols++) {
       const rows = Math.ceil(count / cols);
-      const side = Math.min((w - GAP * (cols - 1)) / cols, (h - GAP * (rows - 1)) / rows, maxSide);
+      const side = Math.floor(Math.min((w - GAP * (cols - 1)) / cols, (h - GAP * (rows - 1)) / rows, maxSide));
       if (side < minSide) continue;
-      if (!best || side > best.side) best = { cols, side, fits: true };
+      if (!best || side >= best.side) best = { cols, side, fits: true };
     }
   }
   if (!best) {
